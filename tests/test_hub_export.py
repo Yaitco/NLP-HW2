@@ -212,6 +212,7 @@ class ExportTests(unittest.TestCase):
                 )
         self.assertEqual(voter.return_value.select.call_count, 2)
         self.assertFalse(voter.call_args.kwargs["sandbox"])
+        self.assertEqual(voter.call_args.kwargs["execution_batch_size"], 16)
         self.assertEqual(
             [
                 json.loads(line)

@@ -23,11 +23,14 @@ class BeamVoter:
         rtol=1e-5,
         atol=1e-6,
         sandbox=True,
+        execution_batch_size=16,
     ):
         if code_format not in ("full", "solve_body_result"):
             raise ValueError("Unknown code_format")
         if not isinstance(workers, int) or workers < 1:
             raise ValueError("workers must be a positive integer")
+        if not isinstance(execution_batch_size, int) or execution_batch_size < 1:
+            raise ValueError("execution_batch_size must be a positive integer")
         if any(not math.isfinite(value) or value < 0 for value in (rtol, atol)):
             raise ValueError("rtol and atol must be finite and non-negative")
         self.tokenizer = Tokenizer.from_file(str(ROOT_PATH / tokenizer_path))
@@ -36,6 +39,7 @@ class BeamVoter:
         if self.eos is None or self.pad is None:
             raise ValueError("Tokenizer must define <eos> and <pad>")
         self.code_format, self.workers = code_format, workers
+        self.execution_batch_size = 1 if sandbox else execution_batch_size
         self.rtol, self.atol = Fraction(str(rtol)), Fraction(str(atol))
         self.executor = SafeCodeExecutor(
             timeout=timeout, memory_mb=memory_mb, sandbox=sandbox
@@ -77,7 +81,19 @@ class BeamVoter:
             )
         )
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
-            results = dict(zip(runnable, pool.map(self.executor.run, runnable)))
+            if self.execution_batch_size == 1:
+                values = pool.map(self.executor.run, runnable)
+            else:
+                chunks = [
+                    runnable[start : start + self.execution_batch_size]
+                    for start in range(0, len(runnable), self.execution_batch_size)
+                ]
+                values = (
+                    value
+                    for chunk in pool.map(self.executor.run_batch, chunks)
+                    for value in chunk
+                )
+            results = dict(zip(runnable, values))
 
         selected, k = [], beams.shape[1]
         for batch_index, row_scores in enumerate(score_rows):

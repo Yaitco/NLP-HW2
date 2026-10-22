@@ -242,6 +242,12 @@ code runs in a fresh process with time/memory limits and a temporary working dir
 but can access the runtime's files and network. Set `SANDBOX = True` to use Bubblewrap.
 For training/validation the equivalent explicit override is `code_execution.sandbox=false`;
 this applies to both voting and the Pass@1 metric. Local training defaults to `true`.
+With `SANDBOX = False`, voting groups up to `EXECUTION_BATCH_SIZE = 16` programs per
+process. Simple arithmetic functions are compiled together as one AST module,
+then called with separate globals and individual timeouts. Imports and other
+unsupported constructs retain individual-process execution. Set
+`EXECUTION_BATCH_SIZE = 1` to compare with the previous implementation; training
+uses `code_execution.batch_size` for this setting. Sandboxed execution stays per program.
 No weights change or Hugging Face re-upload is needed; use the updated project code.
 
 To train a model, run the following command:

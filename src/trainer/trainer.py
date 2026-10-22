@@ -56,6 +56,9 @@ class Trainer(BaseTrainer):
                         sandbox=self.config.get("code_execution", {}).get(
                             "sandbox", True
                         ),
+                        execution_batch_size=self.config.get("code_execution", {}).get(
+                            "batch_size", 16
+                        ),
                     )
                 generated = self.beam_voter.select(*generated)
             for metric in self.metrics["generation"]:

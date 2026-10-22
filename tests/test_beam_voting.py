@@ -138,6 +138,19 @@ class BeamVotingTests(unittest.TestCase):
             )
             which.assert_not_called()
 
+    def test_batched_and_individual_execution_select_the_same_beams(self):
+        beams = self.beams([[0, 1, 2, 3], [0, 0, 1, 2], [4, 5, 0, 7]])
+        scores = torch.tensor([[-0.1, -0.2, -0.3, -0.4]] * 3)
+        single = BeamVoter(
+            self.tokenizer_path, workers=2, sandbox=False, execution_batch_size=1
+        )
+        batch = BeamVoter(
+            self.tokenizer_path, workers=2, sandbox=False, execution_batch_size=16
+        )
+        self.assertTrue(
+            torch.equal(single.select(beams, scores), batch.select(beams, scores))
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

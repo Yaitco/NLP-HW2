@@ -26,7 +26,7 @@ class ExecutionResult:
     value: Fraction | None = None
 
 
-_WORKER = r'''
+_WORKER_SETUP = r'''
 import contextlib
 import decimal
 import fractions
@@ -42,7 +42,7 @@ sys.path[:0] = payload['site_packages']
 for kind, value in (
     (resource.RLIMIT_AS, payload['memory_bytes']),
     (resource.RLIMIT_CPU, payload['cpu_seconds']),
-    (resource.RLIMIT_FSIZE, 16384),
+    (resource.RLIMIT_FSIZE, payload.get('max_output_bytes', 16384)),
     (resource.RLIMIT_CORE, 0),
     (resource.RLIMIT_NPROC, 1),
     (resource.RLIMIT_NOFILE, 32),
@@ -81,7 +81,9 @@ def numeric(value):
     if not math.isfinite(value):
         raise ValueError()
     return fractions.Fraction.from_float(value)
+'''
 
+_WORKER = _WORKER_SETUP + r'''
 status, result = 'runtime_error', None
 try:
     try:
@@ -117,6 +119,89 @@ print(json.dumps(output))
 '''
 
 
+_BATCH_WORKER = _WORKER_SETUP + r'''
+import ast
+import signal
+import types
+
+class CandidateTimeout(BaseException):
+    pass
+
+def expired(*args):
+    raise CandidateTimeout()
+
+allowed_calls = set('abs round int float bool pow min max sum len range list tuple set dict sorted all any divmod enumerate zip reversed'.split())
+forbidden = (ast.Import, ast.ImportFrom, ast.Attribute, ast.Global, ast.Nonlocal,
+             ast.ClassDef, ast.AsyncFunctionDef, ast.Try, ast.TryStar, ast.With,
+             ast.AsyncWith, ast.Raise)
+trees, outputs = [], [None] * len(payload['codes'])
+for index, code in enumerate(payload['codes']):
+    try:
+        tree = ast.parse(code)
+    except (SyntaxError, ValueError, TypeError):
+        outputs[index] = {'status': 'compile_error'}
+        continue
+    except BaseException:
+        outputs[index] = {'status': 'use_single'}
+        continue
+    function = tree.body[0] if len(tree.body) == 1 else None
+    nodes = list(ast.walk(tree))
+    if (not isinstance(function, ast.FunctionDef) or function.name != 'solve'
+        or function.decorator_list or function.returns or getattr(function, 'type_params', [])
+        or function.args.args or function.args.posonlyargs or function.args.kwonlyargs
+        or function.args.vararg or function.args.kwarg
+        or sum(isinstance(node, ast.FunctionDef) for node in nodes) != 1
+        or any(isinstance(node, forbidden) for node in nodes)
+        or any(isinstance(node, ast.Name) and node.id.startswith('__') for node in nodes)
+        or any(isinstance(node, ast.Call) and
+               (not isinstance(node.func, ast.Name) or node.func.id not in allowed_calls)
+               for node in nodes)):
+        outputs[index] = {'status': 'use_single'}
+        continue
+    function.name = f'_candidate_{index}'
+    trees.append(function)
+
+namespace = {'__name__': '__solution__'}
+try:
+    module = ast.fix_missing_locations(ast.Module(body=trees, type_ignores=[]))
+    exec(compile(module, '<candidates>', 'exec'), namespace, namespace)
+except BaseException:
+    outputs = [output or {'status': 'use_single'} for output in outputs]
+
+for index, output in enumerate(outputs):
+    if output is None:
+        # Each function gets its own globals, including its original solve name.
+        function = types.FunctionType(namespace[f'_candidate_{index}'].__code__,
+                                      {'__name__': '__solution__'}, 'solve')
+        function.__globals__['solve'] = function
+        signal.signal(signal.SIGALRM, expired)
+        signal.setitimer(signal.ITIMER_REAL, payload['timeout'])
+        try:
+            with contextlib.redirect_stdout(Discard()), contextlib.redirect_stderr(Discard()):
+                value = function()
+                try:
+                    result = numeric(value)
+                    output = {'status': 'ok'}
+                except TypeError:
+                    output = {'status': 'non_numeric'}
+                except (ValueError, OverflowError):
+                    output = {'status': 'non_finite'}
+                if output['status'] == 'ok':
+                    try:
+                        output.update(numerator=str(result.numerator), denominator=str(result.denominator))
+                    except (ValueError, OverflowError):
+                        output = {'status': 'output_limit'}
+        except CandidateTimeout:
+            output = {'status': 'timeout'}
+        except BaseException:
+            output = {'status': 'runtime_error'}
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            value = result = None
+    print(json.dumps(output), flush=True)
+'''
+
+
 class SafeCodeExecutor:
     """Fresh, resource-limited processes; filesystem/network sandbox by default."""
 
@@ -125,7 +210,7 @@ class SafeCodeExecutor:
     max_integer_digits = 4096
     statuses = frozenset({
         "ok", "compile_error", "runtime_error", "missing_solve", "non_numeric",
-        "non_finite", "output_limit",
+        "non_finite", "output_limit", "timeout",
     })
 
     def __init__(self, timeout=2.0, memory_mb=512, sandbox=True):
@@ -210,20 +295,61 @@ class SafeCodeExecutor:
             return ExecutionResult("missing_code")
         if len(code.encode("utf-8")) > self.max_code_bytes:
             return ExecutionResult("code_limit")
-        payload = json.dumps({"code": code, "site_packages": self.site_packages, "memory_bytes": self.memory_bytes,
-                              "cpu_seconds": max(1, math.ceil(self.timeout))}).encode()
+        payload = {"code": code, "site_packages": self.site_packages, "memory_bytes": self.memory_bytes,
+                   "cpu_seconds": max(1, math.ceil(self.timeout))}
+        data, error = self._run_process(payload, self.command, self.timeout, self.max_output_bytes)
+        return ExecutionResult(error) if error else self._decode_result(data)
+
+    def run_batch(self, codes):
+        """One AST module/process for simple arithmetic; complex code uses run()."""
+        if self.sandbox or len(codes) <= 1:
+            return [self.run(code) for code in codes]
+        results, valid = [None] * len(codes), []
+        for index, code in enumerate(codes):
+            if not isinstance(code, str) or not code.strip():
+                results[index] = ExecutionResult("missing_code")
+            elif len(code.encode("utf-8")) > self.max_code_bytes:
+                results[index] = ExecutionResult("code_limit")
+            else:
+                valid.append(index)
+        if not valid:
+            return results
+        output_limit = self.max_output_bytes * len(valid)
+        payload = {
+            "codes": [codes[index] for index in valid],
+            "site_packages": self.site_packages,
+            "memory_bytes": self.memory_bytes,
+            "cpu_seconds": max(1, math.ceil(self.timeout * len(valid))) + 1,
+            "timeout": self.timeout,
+            "max_output_bytes": output_limit,
+        }
+        data, _ = self._run_process(payload, [sys.executable, "-I", "-S", "-c", _BATCH_WORKER],
+                                    self.timeout * len(valid) + 1, output_limit)
+        lines = data.splitlines()
+        for position, index in enumerate(valid):
+            line = lines[position] if position < len(lines) else b''
+            if line == b'{"status": "use_single"}' or not line:
+                results[index] = self.run(codes[index])
+            else:
+                results[index] = self._decode_result(line)
+                if results[index].status == "invalid_output":
+                    results[index] = self.run(codes[index])
+        return results
+
+    def _run_process(self, payload, command, timeout, output_limit):
+        error = None
         # A regular file, bounded by RLIMIT_FSIZE, avoids unbounded PIPE capture.
         with tempfile.TemporaryFile() as output, tempfile.TemporaryDirectory() as workdir:
             process = subprocess.Popen(
-                self.command, stdin=subprocess.PIPE, stdout=output,
+                command, stdin=subprocess.PIPE, stdout=output,
                 stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
                 env=self.environment, cwd=None if self.sandbox else workdir,
                 **self.process_identity,
             )
             try:
-                process.communicate(payload, timeout=self.timeout)
+                process.communicate(json.dumps(payload).encode(), timeout=timeout)
             except subprocess.TimeoutExpired:
-                return ExecutionResult("timeout")
+                error = "timeout"
             finally:
                 # A live/unreaped PID cannot be reused by another process.
                 # Exiting the PID namespace also terminates its descendants.
@@ -235,10 +361,13 @@ class SafeCodeExecutor:
                 process.wait()
                 if process.stdin is not None:
                     process.stdin.close()
-            if process.returncode != 0:
-                return ExecutionResult("worker_failure")
+            if process.returncode != 0 and error is None:
+                error = "worker_failure"
             output.seek(0)
-            data = output.read(self.max_output_bytes + 1)
+            data = output.read(output_limit + 1)
+        return data, error
+
+    def _decode_result(self, data):
         if len(data) > self.max_output_bytes:
             return ExecutionResult("output_limit")
         try:

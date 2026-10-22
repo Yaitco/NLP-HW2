@@ -33,6 +33,7 @@ loss_function:
 
 code_execution:
   sandbox: true
+  batch_size: 16 # Programs per worker process when sandbox=false.
 
 optimizer:
   _target_: torch.optim.AdamW

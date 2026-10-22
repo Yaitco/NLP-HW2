@@ -300,7 +300,10 @@ class VirtualEpochTests(unittest.TestCase):
         self.assertTrue(generate.call_args.kwargs["return_beams"])
         self.assertEqual(generate.call_args.kwargs["num_beams"], 3)
         voter.assert_called_once_with(
-            "unused.json", code_format="solve_body_result", sandbox=True
+            "unused.json",
+            code_format="solve_body_result",
+            sandbox=True,
+            execution_batch_size=16,
         )
         self.assertEqual(voter.return_value.select.call_count, 4)
 
