@@ -1,0 +1,19 @@
+defaults:
+  - tinysms_strong_dirty
+  - override lr_scheduler: virtual_warmup_cosine
+  - _self_
+
+datasets:
+  train:
+    indices_path: artifacts/clean_numeric_1m/train_indices.npy
+
+trainer:
+  # One virtual epoch = 1000 microbatches, independently of dataset size.
+  epoch_len: 1000
+  n_epochs: 93.756 # 93 full epochs + 756 microbatches = 23439 weight updates.
+  pass_every_epochs: 10
+  log_step: 100 # Microbatches on the logging axis.
+  early_stop: 0 # Keep the fixed budget when increasing validation frequency.
+
+writer:
+  run_name: strong_clean_numeric_1m

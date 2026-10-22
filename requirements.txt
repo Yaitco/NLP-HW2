@@ -1,14 +1,4 @@
-torch==2.2.0
-torchvision==0.17.0
-torchmetrics
-numpy==1.26.4
-tqdm
-matplotlib
-pandas
-wandb
-comet_ml
-hydra-core
+-r requirements-notebook.txt
 
-black
-isort
-pre-commit
+# Local installation also needs PyTorch.
+torch>=2.5

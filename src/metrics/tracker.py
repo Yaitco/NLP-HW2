@@ -1,72 +1,41 @@
-import pandas as pd
+import torch
 
 
 class MetricTracker:
-    """
-    Class to aggregate metrics from many batches.
-    """
+    """Weighted scalar means; CUDA sums stay on device until logging."""
 
     def __init__(self, *keys, writer=None):
-        """
-        Args:
-            *keys (list[str]): list (as positional arguments) of metric
-                names (may include the names of losses)
-            writer (WandBWriter | CometMLWriter | None): experiment tracker.
-                Not used in this code version. Can be used to log metrics
-                from each batch.
-        """
         self.writer = writer
-        self._data = pd.DataFrame(index=keys, columns=["total", "counts", "average"])
+        self._totals = dict.fromkeys(keys, 0.0)
         self.reset()
 
     def reset(self):
-        """
-        Reset all metrics after epoch end.
-        """
-        for col in self._data.columns:
-            self._data[col].values[:] = 0
+        self._totals = dict.fromkeys(self._totals, 0.0)
+        self._counts = dict.fromkeys(self._totals, 0)
 
     def update(self, key, value, n=1):
-        """
-        Update metrics DataFrame with new value.
+        if isinstance(value, torch.Tensor):
+            value = value.detach().float()
+            if not value.is_cuda:
+                value = value.item()
+        self._totals[key] += value * n
+        self._counts[key] += n
 
-        Args:
-            key (str): metric name.
-            value (float): metric value on the batch.
-            n (int): how many times to count this value.
-        """
-        # if self.writer is not None:
-        #     self.writer.add_scalar(key, value)
-        self._data.loc[key, "total"] += value * n
-        self._data.loc[key, "counts"] += n
-        self._data.loc[key, "average"] = self._data.total[key] / self._data.counts[key]
+    update_tensor = update
+
+    def flush(self):
+        keys = [k for k, v in self._totals.items() if isinstance(v, torch.Tensor)]
+        if keys:
+            values = torch.stack([self._totals[k] for k in keys]).cpu().tolist()
+            self._totals.update(zip(keys, values))
 
     def avg(self, key):
-        """
-        Return average value for a given metric.
-
-        Args:
-            key (str): metric name.
-        Returns:
-            average_value (float): average value for the metric.
-        """
-        return self._data.average[key]
+        self.flush()
+        return self._totals[key] / self._counts[key] if self._counts[key] else 0.0
 
     def result(self):
-        """
-        Return average value of each metric.
-
-        Returns:
-            average_metrics (dict): dict, containing average metrics
-                for each metric name.
-        """
-        return dict(self._data.average)
+        self.flush()
+        return {k: self._totals[k] / n if n else 0.0 for k, n in self._counts.items()}
 
     def keys(self):
-        """
-        Return all metric names defined in the MetricTracker.
-
-        Returns:
-            metric_keys (Index): all metric names in the table.
-        """
-        return self._data.total.keys()
+        return self._totals.keys()

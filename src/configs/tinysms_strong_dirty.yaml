@@ -1,0 +1,58 @@
+defaults:
+  - tinysms_one_batch
+  - override writer: cometml
+  - override metrics: code
+  - override datasets: tinysms_with_validation
+  - override lr_scheduler: warmup_cosine
+  - _self_
+
+# All one million saved training rows: no quality or length filtering.
+datasets:
+  train:
+    limit: null
+
+model:
+  config:
+    d_model: 512
+    d_ff: 2048
+    n_heads: 8
+    encoder_layers: 6
+    decoder_layers: 4
+    dropout: 0.1
+    # Keep every long example in the original million.
+    max_src_len: 1024
+    max_tgt_len: 1280
+    gradient_checkpointing: false
+
+dataloader:
+  batch_size: 32
+
+batching:
+  group_by_length: true
+  bucket_size_multiplier: 50
+
+optimizer:
+  lr: 3.0e-4
+  weight_decay: 0.01
+  fused: true
+
+trainer:
+  epoch_len: null
+  n_epochs: 3
+  accumulate_grad_batches: 4 # 32 * 4 = 128; final group of each epoch has 64.
+  log_step: 500 # Microbatches; logging is aligned to an optimizer update.
+  monitor: max val_pass_at_1
+  early_stop: 3
+  non_blocking: true
+  amp:
+    enabled: true
+    dtype: auto
+  generation:
+    max_new_tokens: 512
+    num_beams: 4
+    length_penalty: 1.0
+    use_cache: true
+
+writer:
+  run_name: strong_dirty_1m
+  mode: online

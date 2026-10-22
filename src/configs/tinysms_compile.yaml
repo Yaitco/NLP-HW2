@@ -1,0 +1,14 @@
+defaults:
+  - tinysms_baseline
+  - _self_
+
+writer:
+  run_name: compile_10k
+
+trainer:
+  compile:
+    enabled: true
+    mode: default
+    # Allow source/target lengths and batch size to vary.
+    dynamic: true
+    fullgraph: false

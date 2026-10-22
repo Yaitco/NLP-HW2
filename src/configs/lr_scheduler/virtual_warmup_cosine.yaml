@@ -1,0 +1,7 @@
+_target_: src.utils.lr_scheduler.warmup_cosine_epochs
+epoch_len: ${trainer.epoch_len}
+n_epochs: ${trainer.n_epochs}
+accumulate_grad_batches: ${trainer.accumulate_grad_batches}
+warmup_epochs: 4 # 4000 microbatches = 1000 optimizer updates with accumulation=4.
+start_factor: 0.001
+min_lr: 3.0e-5

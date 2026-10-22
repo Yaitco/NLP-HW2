@@ -1,0 +1,26 @@
+defaults:
+  - tinysms_strong_long
+  - _self_
+
+data:
+  dataset_path: artifacts/tokenized_full_clean_16k
+  tokenizer_path: artifacts/tokenizer_16k.json
+
+datasets:
+  train:
+    indices_path: artifacts/length128_16k/train_indices.npy
+
+model:
+  config:
+    vocab_size: 16384
+
+trainer:
+  n_epochs: 2000 # Upper bound; the wall-time budget normally stops training first.
+  max_time_hours: 10 # Includes validation and Pass@1; checked at epoch boundaries.
+  pass_every_epochs: 20
+  amp:
+    enabled: true
+    dtype: bfloat16
+
+writer:
+  run_name: strong_full_clean_sqrt_16k_len128

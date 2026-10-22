@@ -1,5 +1,8 @@
 # PyTorch Template for DL projects
 
+> TinySMS adaptation: see [MIGRATION.md](MIGRATION.md) for the transferred code,
+> dataset paths, and the one-batch training command.
+
 <p align="center">
   <a href="#about">About</a> •
   <a href="#tutorials">Tutorials</a> •
@@ -113,6 +116,79 @@ Installation may depend on your task. The general steps are the following:
    ```
 
 ## How To Use
+
+### Export to Hugging Face and run inference
+
+```bash
+venv/bin/hf auth login
+venv/bin/python export_model.py --repo-id YaItco/NLP-2-transformer
+```
+
+The default checkpoint is `saved/strong_full_clean_sqrt_16k_len128_b64/model_best.pth`.
+Override it with `--checkpoint PATH`. The script exports `model.pt`, `config.json`,
+`tokenizer.json`, and a model card to `artifacts/hf_model`, then uploads only these
+files. It takes architecture and tokenizer path from the checkpoint. Optimizer
+state, credentials, and training configuration are excluded. New repositories are
+public by default; add `--private` to create a private repository. Omit `--repo-id`
+to export locally without uploading.
+
+Open `notebooks/inference.ipynb` inside the downloaded project with dependencies
+installed and a GPU enabled. It downloads the model from Hugging Face, reads only
+the public test split in streaming mode, generates in FP16 with KV-cache, and saves
+an ordered list of code strings in `predictions.json`. Model code is imported from
+this project. Private HF repositories require authentication in that environment.
+The printed time includes tokenization/generation but excludes model/data downloads.
+
+### Compact code targets and a new 16k BPE
+
+```bash
+python prepare_data.py --config src/configs/tokenizer_body_16k.yaml
+python filter_lengths.py --config src/configs/filter_length_128_body_16k.yaml
+```
+
+The preparation command normalizes the full numerically cleaned train (before
+the old token-length filter) and the original validation split. It saves a separate
+dataset with `original_code` and the new `code`, trains a fresh 16,384-token BPE on
+100,000 random train examples, and tokenizes every split. Public test rows remain
+without reference code. Existing datasets/tokenizers are preserved.
+
+Code is parsed through AST to remove comments safely, normalized with `ast.unparse`,
+and stored without `def solve()` and the final `return result`. Other final return
+expressions become `result = expression`; earlier returns inside branches remain.
+Body indentation is retained so multiline string values do not change. Unused
+functions outside `solve()` are removed. Required module-level helpers or
+other unsupported module structure stop preparation with the row index rather
+than silently deleting dependencies or dropping rows.
+
+New artifacts: `artifacts/code_body_full_clean`, `artifacts/tokenizer_body_16k.json`,
+`artifacts/tokenized_body_full_clean_16k`, and `artifacts/length128_body_16k`.
+The last command recomputes the 128-token filter for train only, including EOS in
+target lengths. Validation and all 1,919 public test examples remain unfiltered.
+
+For subsequent model training, use the new tokenizer/data/indices, train from
+scratch, and set `data.code_format: solve_body_result` so Pass@1 restores the
+function wrapper inside the existing sandbox. For exported predictions use
+`src.code_preprocessing.restore_code(body)`.
+
+To reuse the normalized dataset after preparation, set `prepare_code: false`.
+To reuse an already trained tokenizer, also set `train_tokenizer: false`.
+
+Validation generation in `tinysms_train` and `tinysms_strong_*` uses KV-cache and
+beam search. Configure it under `trainer.generation`:
+
+```yaml
+max_new_tokens: 512
+num_beams: 4       # 1 selects greedy decoding.
+length_penalty: 1.0
+use_cache: true
+```
+
+Beam scores are `sum(log probabilities) / length ** length_penalty`; length
+includes EOS and excludes BOS and trailing PAD. Finished beams only append PAD.
+The best completed candidate is retained if it leaves the active beam pool.
+KV-cache stores decoder self-attention keys/values and the encoder projections
+for cross-attention. `use_cache: false` recomputes complete prefixes for comparison.
+These options affect Pass@1 generation; teacher-forced validation loss is unchanged.
 
 To train a model, run the following command:
 

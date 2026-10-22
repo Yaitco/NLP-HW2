@@ -1,0 +1,4 @@
+_target_: src.utils.lr_scheduler.inverse_sqrt
+epoch_len: ${trainer.epoch_len}
+accumulate_grad_batches: ${trainer.accumulate_grad_batches}
+warmup_epochs: 16 # 16000 microbatches / 4000 optimizer updates with accumulation=4.

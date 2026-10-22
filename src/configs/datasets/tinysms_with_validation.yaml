@@ -1,0 +1,12 @@
+defaults:
+  - tinysms
+  - _self_
+
+val:
+  _target_: src.datasets.TinySMSRawDataset
+  path: SlavaYus/tinysms_qa_12m
+  tokenizer_path: ${data.tokenizer_path}
+  start: 1000000
+  limit: 2048
+  split: train
+  local_files_only: false

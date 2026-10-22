@@ -1,0 +1,5 @@
+_target_: src.utils.lr_scheduler.warmup_cosine
+total_steps: null # Auto: ceil(microbatches_per_epoch / accumulation) * n_epochs.
+warmup_steps: 1000 # Successful optimizer updates, not microbatches.
+start_factor: 0.001
+min_lr: 3.0e-5

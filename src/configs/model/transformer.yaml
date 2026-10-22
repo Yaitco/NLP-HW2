@@ -1,0 +1,16 @@
+_target_: src.model.Seq2SeqTransformer
+config:
+  _target_: src.model.Seq2SeqTransformerConfig
+  # IDs and size of the existing artifacts/tokenizer.json.
+  vocab_size: 8192
+  pad_id: 0
+  decoder_start_token_id: 2
+  eos_token_id: 3
+  max_src_len: 512
+  max_tgt_len: 512
+  d_model: 256
+  n_heads: 4
+  encoder_layers: 2
+  decoder_layers: 2
+  d_ff: 1024
+  dropout: 0.1

@@ -1,0 +1,29 @@
+dataset:
+  path: SlavaYus/tinysms_qa_12m
+  question_column: question
+  code_column: code
+
+train_tokenizer: False
+tokenize_dataset: True
+
+tokenizer:
+  vocab_size: 8192
+  min_frequency: 2
+  special_tokens:
+    - "<pad>"
+    - "<unk>"
+    - "<bos>"
+    - "<eos>"
+  training_examples: 100000
+  output_path: artifacts/tokenizer.json
+
+preprocessing:
+  splits:
+    train:
+      max_examples: 1000000
+    test:
+      max_examples: null
+
+  batch_size: 1000
+  num_proc: 4
+  output_path: artifacts/tokenized_dataset

@@ -2,7 +2,8 @@ from itertools import repeat
 
 from hydra.utils import instantiate
 
-from src.datasets.collate import collate_fn
+from src.datasets.collate import collate_fn as default_collate_fn
+from src.datasets.samplers import LengthGroupedBatchSampler
 from src.utils.init_utils import set_worker_seed
 
 
@@ -65,24 +66,46 @@ def get_dataloaders(config, device):
     # dataset partitions init
     datasets = instantiate(config.datasets)  # instance transforms are defined inside
 
+    collate_fn = (
+        instantiate(config.collate_fn)
+        if config.get("collate_fn") is not None
+        else default_collate_fn
+    )
+
     # dataloaders init
     dataloaders = {}
     for dataset_partition in config.datasets.keys():
         dataset = datasets[dataset_partition]
 
-        assert config.dataloader.batch_size <= len(dataset), (
-            f"The batch size ({config.dataloader.batch_size}) cannot "
-            f"be larger than the dataset length ({len(dataset)})"
-        )
+        loader_config = dict(config.dataloader)
+        if loader_config.get("num_workers", 0) == 0:
+            loader_config.pop("prefetch_factor", None)
+            loader_config["persistent_workers"] = False
 
-        partition_dataloader = instantiate(
-            config.dataloader,
-            dataset=dataset,
-            collate_fn=collate_fn,
-            drop_last=(dataset_partition == "train"),
-            shuffle=(dataset_partition == "train"),
-            worker_init_fn=set_worker_seed,
-        )
+        batching = config.get("batching", {})
+        if dataset_partition == "train" and batching.get("group_by_length", False):
+            sampler = LengthGroupedBatchSampler(
+                dataset.get_lengths(),
+                batch_size=loader_config.pop("batch_size"),
+                bucket_size_multiplier=batching.get("bucket_size_multiplier", 50),
+                seed=config.trainer.seed,
+            )
+            partition_dataloader = instantiate(
+                loader_config,
+                dataset=dataset,
+                batch_sampler=sampler,
+                collate_fn=collate_fn,
+                worker_init_fn=set_worker_seed,
+            )
+        else:
+            partition_dataloader = instantiate(
+                loader_config,
+                dataset=dataset,
+                collate_fn=collate_fn,
+                drop_last=False,
+                shuffle=(dataset_partition == "train"),
+                worker_init_fn=set_worker_seed,
+            )
         dataloaders[dataset_partition] = partition_dataloader
 
     return dataloaders, batch_transforms

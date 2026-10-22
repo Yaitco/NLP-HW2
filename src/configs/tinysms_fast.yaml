@@ -1,0 +1,41 @@
+defaults:
+  - tinysms_baseline
+  - _self_
+
+writer:
+  run_name: fast_10k
+
+optimizer:
+  fused: true
+
+dataloader:
+  batch_size: 32
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+
+collate_fn:
+  pad_to_multiple_of: 8
+
+batching:
+  group_by_length: true
+  bucket_size_multiplier: 50
+
+model:
+  config:
+    gradient_checkpointing: false
+
+trainer:
+  non_blocking: true
+  deterministic: false
+  matmul_precision: high
+  accumulate_grad_batches: 1
+  amp:
+    enabled: true
+    dtype: auto # Native BF16 when available; otherwise FP16 + GradScaler.
+  compile:
+    enabled: true
+    mode: default
+    dynamic: true
+    fullgraph: false

@@ -40,7 +40,8 @@ class WandBWriter:
         try:
             import wandb
 
-            wandb.login()
+            if mode == "online":
+                wandb.login()
 
             self.run_id = run_id
 

@@ -1,0 +1,4 @@
+dataset_path: artifacts/tokenized_full_clean_16k
+output: artifacts/length128_16k
+max_length: 128 # Both input_ids and labels (including EOS) must fit.
+splits: [train]

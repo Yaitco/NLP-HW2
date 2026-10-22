@@ -1,0 +1,22 @@
+defaults:
+  - tinysms_strong_dirty
+  - override datasets: tinysms_full
+  - override lr_scheduler: inverse_sqrt
+  - _self_
+
+# Roughly 10 hours at the previous 1M run's average of 68 s per virtual epoch.
+# Includes validation/Pass@1; the full corpus's length mix can change runtime.
+trainer:
+  epoch_len: 1000
+  n_epochs: 530 # 530000 microbatches / 132500 optimizer updates.
+  from_pretrained: null
+  resume_from: null
+  pass_every_epochs: 10
+  log_step: 100
+  early_stop: 0
+
+data:
+  dataset_path: artifacts/tokenized_full_clean
+
+writer:
+  run_name: strong_full_clean_sqrt

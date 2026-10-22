@@ -1,0 +1,57 @@
+defaults:
+  - model: transformer
+  - writer: wandb
+  - metrics: none
+  - datasets: tinysms
+  - dataloader: tinysms
+  - lr_scheduler: step
+  - transforms: none
+  - _self_
+
+# Reuse the already tokenized million examples without copying Arrow files.
+data:
+  dataset_path: ../hw2/artifacts/tokenized_dataset
+  tokenizer_path: artifacts/tokenizer.json
+
+datasets:
+  train:
+    limit: 8
+
+model:
+  config:
+    dropout: 0.0
+
+collate_fn:
+  _target_: src.datasets.collate.Seq2SeqCollator
+  tokenizer_path: ${data.tokenizer_path}
+  pad_id: ${model.config.pad_id}
+  eos_token_id: ${model.config.eos_token_id}
+
+loss_function:
+  _target_: src.loss.Seq2SeqCrossEntropyLoss
+  pad_id: ${model.config.pad_id}
+
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 0.001
+
+writer:
+  project_name: tinysms
+  run_name: tinysms_one_batch
+  mode: offline
+
+trainer:
+  log_step: 20
+  n_epochs: 1
+  epoch_len: 300
+  device_tensors: [input_ids, attention_mask, labels]
+  resume_from: null
+  device: auto
+  override: false
+  monitor: 'off'
+  save_period: 1
+  early_stop: 1
+  save_dir: saved
+  seed: 42
+  max_grad_norm: 1.0
+  skip_oom: false

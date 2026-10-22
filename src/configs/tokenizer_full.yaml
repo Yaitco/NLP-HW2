@@ -1,0 +1,26 @@
+dataset:
+  path: SlavaYus/tinysms_qa_12m
+  question_column: question
+  code_column: code
+  local_files_only: true
+
+train_tokenizer: false
+tokenize_dataset: true
+
+tokenizer:
+  output_path: artifacts/tokenizer.json
+
+preprocessing:
+  splits:
+    train:
+      max_examples: null
+    test:
+      max_examples: null
+  cleaning:
+    audit_dir: artifacts/dataset_audit/train
+    rechecked_manifest: artifacts/clean_numeric_1m/train_indices.json
+    validation_start: 1000000
+    validation_size: 2048
+  batch_size: 1000
+  num_proc: 4
+  output_path: artifacts/tokenized_full_clean

@@ -1,79 +1,49 @@
-from src.metrics.tracker import MetricTracker
+import torch
+
 from src.trainer.base_trainer import BaseTrainer
 
 
 class Trainer(BaseTrainer):
-    """
-    Trainer class. Defines the logic of batch logging and processing.
-    """
-
-    def process_batch(self, batch, metrics: MetricTracker):
-        """
-        Run batch through the model, compute metrics, compute loss,
-        and do training step (during training stage).
-
-        The function expects that criterion aggregates all losses
-        (if there are many) into a single one defined in the 'loss' key.
-
-        Args:
-            batch (dict): dict-based batch containing the data from
-                the dataloader.
-            metrics (MetricTracker): MetricTracker object that computes
-                and aggregates the metrics. The metrics depend on the type of
-                the partition (train or inference).
-        Returns:
-            batch (dict): dict-based batch containing the data from
-                the dataloader (possibly transformed via batch transform),
-                model outputs, and losses.
-        """
-        batch = self.move_batch_to_device(batch)
-        batch = self.transform_batch(batch)  # transform batch on device -- faster
-
-        metric_funcs = self.metrics["inference"]
-        if self.is_train:
-            metric_funcs = self.metrics["train"]
-            self.optimizer.zero_grad()
-
-        outputs = self.model(**batch)
-        batch.update(outputs)
-
-        all_losses = self.criterion(**batch)
-        batch.update(all_losses)
+    def process_batch(self, batch, metrics, *, loss_scale=1.0):
+        weight_fn = getattr(self.criterion, "normalization_weight", lambda **batch: 1)
+        weight = weight_fn(**batch)  # Count on CPU before moving labels to CUDA.
+        if weight <= 0:
+            raise ValueError("Batch must contain supervised targets")
+        batch = self.transform_batch(self.move_batch_to_device(batch))
+        with torch.autocast(
+            device_type=torch.device(self.device).type,
+            dtype=self.amp_dtype,
+            enabled=self.amp_enabled,
+        ):
+            batch.update(self.model(**batch))
+            batch.update(self.criterion(**batch))
 
         if self.is_train:
-            batch["loss"].backward()  # sum of all losses is always called loss
-            self._clip_grad_norm()
-            self.optimizer.step()
-            if self.lr_scheduler is not None:
-                self.lr_scheduler.step()
+            self.scaler.scale(batch["loss"] * loss_scale).backward()
+        for name in self.config.writer.loss_names:
+            metrics.update_tensor(name, batch[name], n=weight)
+        mode = "train" if self.is_train else "inference"
+        for metric in self.metrics[mode]:
+            metrics.update_tensor(metric.name, metric(**batch))
 
-        # update metrics for each loss (in case of multiple losses)
-        for loss_name in self.config.writer.loss_names:
-            metrics.update(loss_name, batch[loss_name].item())
-
-        for met in metric_funcs:
-            metrics.update(met.name, met(**batch))
+        if (
+            not self.is_train
+            and self.compute_generation
+            and self.metrics.get("generation")
+        ):
+            # Metrics already consumed teacher-forced logits; generation needs no logits.
+            batch.pop("logits", None)
+            with torch.autocast(
+                device_type=torch.device(self.device).type,
+                dtype=self.amp_dtype,
+                enabled=self.amp_enabled,
+            ):
+                generated = self.model.generate(
+                    input_ids=batch["input_ids"],
+                    attention_mask=batch.get("attention_mask"),
+                    **self.cfg_trainer.generation,
+                )
+            for metric in self.metrics["generation"]:
+                metric.update(generated, batch.get("labels"))
+            del generated
         return batch
-
-    def _log_batch(self, batch_idx, batch, mode="train"):
-        """
-        Log data from batch. Calls self.writer.add_* to log data
-        to the experiment tracker.
-
-        Args:
-            batch_idx (int): index of the current batch.
-            batch (dict): dict-based batch after going through
-                the 'process_batch' function.
-            mode (str): train or inference. Defines which logging
-                rules to apply.
-        """
-        # method to log data from you batch
-        # such as audio, text or images, for example
-
-        # logging scheme might be different for different partitions
-        if mode == "train":  # the method is called only every self.log_step steps
-            # Log Stuff
-            pass
-        else:
-            # Log Stuff
-            pass

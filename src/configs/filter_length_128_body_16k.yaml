@@ -1,0 +1,4 @@
+dataset_path: artifacts/tokenized_body_full_clean_16k
+output: artifacts/length128_body_16k
+max_length: 128
+splits: [train]

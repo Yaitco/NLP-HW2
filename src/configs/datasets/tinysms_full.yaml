@@ -1,0 +1,10 @@
+train:
+  _target_: src.datasets.TinySMSDataset
+  path: ${data.dataset_path}
+  split: train
+  limit: null
+
+val:
+  _target_: src.datasets.TinySMSDataset
+  path: ${data.dataset_path}
+  split: validation

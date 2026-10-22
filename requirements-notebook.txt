@@ -1,0 +1,17 @@
+# Shared project dependencies; Colab/Kaggle provide PyTorch.
+numpy
+sympy
+scipy
+pandas
+tqdm
+hydra-core
+datasets>=4.0
+transformers>=4.57
+tokenizers
+huggingface_hub
+PyYAML
+wandb
+matplotlib
+ipykernel
+nbformat
+nbclient

@@ -1,0 +1,37 @@
+defaults:
+  - tinysms_one_batch
+  - override writer: cometml
+  - _self_
+
+datasets:
+  train:
+    limit: 10000
+
+dataloader:
+  batch_size: 16
+
+batching:
+  group_by_length: false # Optional experiment; reduces padding, benchmark speed first.
+  bucket_size_multiplier: 50
+
+model:
+  config:
+    dropout: 0.1
+    max_tgt_len: 1024
+
+optimizer:
+  lr: 0.0003
+  fused: true
+
+lr_scheduler:
+  step_size: 1000
+
+trainer:
+  epoch_len: null
+  n_epochs: 1
+  device: auto
+  non_blocking: true # Pair with dataloader.pin_memory for CUDA transfers.
+
+writer:
+  mode: online
+  run_name: baseline_10k

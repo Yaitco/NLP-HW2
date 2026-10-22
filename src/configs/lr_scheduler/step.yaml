@@ -1,0 +1,3 @@
+_target_: torch.optim.lr_scheduler.StepLR
+step_size: ${trainer.epoch_len}
+gamma: 1.0

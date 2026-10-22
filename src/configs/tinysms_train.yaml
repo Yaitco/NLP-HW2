@@ -1,0 +1,43 @@
+defaults:
+  - tinysms_baseline
+  - override metrics: code
+  - _self_
+
+datasets:
+  train:
+    limit: null
+  val:
+    _target_: src.datasets.TinySMSRawDataset
+    path: SlavaYus/tinysms_qa_12m
+    tokenizer_path: ${data.tokenizer_path}
+    # The saved training set contains raw rows [0, 1_000_000).
+    start: 1000000
+    limit: 256
+    split: train
+    local_files_only: false
+
+dataloader:
+  batch_size: 32
+
+model:
+  config:
+    # Full dataset maxima: source 744, target including EOS 1146.
+    max_src_len: 1024
+    max_tgt_len: 1280
+
+lr_scheduler:
+  step_size: 15000
+  gamma: 0.5
+
+trainer:
+  n_epochs: 1
+  log_step: 500
+  monitor: max val_pass_at_1
+  generation:
+    max_new_tokens: 512 # A generation without EOS counts as a failure.
+    num_beams: 4
+    length_penalty: 1.0
+    use_cache: true
+
+writer:
+  run_name: baseline_1m

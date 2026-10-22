@@ -1,0 +1,316 @@
+{
+  "scope": "current_train_numeric_clean_BPE16384_source_and_target_le128",
+  "rows": 10609815,
+  "full_train_rows": 10609815,
+  "pilot": false,
+  "raw_fingerprint": "1ff4c4f832cec95a",
+  "tokenized_train_fingerprint": "a1902501ffec65ac",
+  "selection_sha256": "0cdf3a4991c1e223d5bdb5682224645f6ddb8a7d0aa623ffb2b4512797c699bd",
+  "analyzer_sha256": "ce5ba36d5a15093698311279ce7bd8baf5ac84c4d77f33cbe0bfd39575f37e20",
+  "workers": 8,
+  "elapsed_seconds": 221.68765529204393,
+  "counts": {
+    "parse_error": 0,
+    "no_direct_solve": 0,
+    "extra_top_level_statements": 0,
+    "helper_definitions": 0,
+    "imports_present": 124631,
+    "unused_imports": 46885,
+    "unused_assigned_name": 888060,
+    "unused_literal_assignment": 518189,
+    "dead_assignments_no_calls": 545518,
+    "overwritten_before_read": 98550,
+    "unreachable_after_return": 0,
+    "terminal_assignment_return": 8613016,
+    "terminal_name_alias_return": 8155643,
+    "function_annotations": 10609815,
+    "docstrings": 0,
+    "comments": 2964011,
+    "redundant_pass": 0,
+    "unused_literal_expression": 11,
+    "dynamic_namespace": 16,
+    "straight_line_solve": 8267074
+  },
+  "percent": {
+    "parse_error": 0.0,
+    "no_direct_solve": 0.0,
+    "extra_top_level_statements": 0.0,
+    "helper_definitions": 0.0,
+    "imports_present": 1.1746764670260508,
+    "unused_imports": 0.4419021443823479,
+    "unused_assigned_name": 8.370174220756912,
+    "unused_literal_assignment": 4.884053114969488,
+    "dead_assignments_no_calls": 5.1416353631048235,
+    "overwritten_before_read": 0.928856912208177,
+    "unreachable_after_return": 0.0,
+    "terminal_assignment_return": 81.17970011729705,
+    "terminal_name_alias_return": 76.86885209591307,
+    "function_annotations": 100.0,
+    "docstrings": 0.0,
+    "comments": 27.936500306555768,
+    "redundant_pass": 0.0,
+    "unused_literal_expression": 0.0001036775853301872,
+    "dynamic_namespace": 0.0001508037604802723,
+    "straight_line_solve": 77.9191154605429
+  },
+  "potential_unused_code_union": 1013657,
+  "stylistic_compression_union": 10609815,
+  "definitions": {
+    "parse_error": "ast.parse rejected the raw code",
+    "no_direct_solve": "No module-level def solve; detailed local analysis skipped",
+    "extra_top_level_statements": "Module contains statements other than def solve and a module docstring; these may be required",
+    "helper_definitions": "Module-level extra functions/classes; these may be required",
+    "imports_present": "Any import in the program",
+    "unused_imports": "An explicitly imported binding has no ast.Name(Load) anywhere in the module; side effects of import are not assessed",
+    "unused_assigned_name": "Simple assignment target inside solve has no ast.Name(Load) anywhere inside solve",
+    "unused_literal_assignment": "An unread assignment with a constant/literal-only RHS",
+    "dead_assignments_no_calls": "Backward dependency slice for straight-line solve finds an assignment not contributing to return; RHS has no calls/attributes/subscripts/walrus/yield",
+    "overwritten_before_read": "In straight-line solve a local name is assigned twice before any read",
+    "unreachable_after_return": "Statements after unconditional return/raise, including if/else with both branches terminating",
+    "terminal_assignment_return": "solve ends with name = expression; return name (adjacent AST statements)",
+    "terminal_name_alias_return": "Narrower case: solve ends with name = other_name; return name",
+    "function_annotations": "solve has return/argument annotations",
+    "docstrings": "Module or solve has a docstring",
+    "comments": "Python tokenize detects a COMMENT token; comments are absent from AST",
+    "redundant_pass": "A statement block has pass plus at least one other statement",
+    "unused_literal_expression": "Standalone literal expression other than a leading docstring",
+    "dynamic_namespace": "Namespace reflection/eval/exec/frame access detected; unused-import/local checks are suppressed",
+    "straight_line_solve": "Local backward slice applies: only simple assignments, literals, pass, and one final return"
+  },
+  "examples": {
+    "parse_error": [],
+    "no_direct_solve": [],
+    "extra_top_level_statements": [],
+    "helper_definitions": [],
+    "imports_present": [
+      {
+        "train_index": 17260,
+        "raw_index": 18642,
+        "code": "def solve() -> int:\n    from fractions import Fraction\n    book = Fraction(1, 4) # the fraction of money Ben spent on the book\n    toy = Fraction(1, 3) # the fraction of money Ben spent on the toy\n    left = 10 # the amount of money Ben had left\n    before_toy = left / (1 - toy) # the amount of money Ben had before buying the toy\n    before_book = before_toy / (1 - book) # the amount of money Ben had before buying the book\n    result = before_book # the final answer\n    return result\n"
+      },
+      {
+        "train_index": 18780,
+        "raw_index": 20290,
+        "code": "def solve() -> int:\n    from math import gcd\n    part = gcd(2, 3) # liters\n    apple_parts = 1.2 / part\n    orange_parts = 2.4 / part\n    min_parts = min(apple_parts, orange_parts)\n    apple_juice = min_parts * part # liters\n    orange_juice = min_parts * part # liters\n    total_juice = apple_juice + orange_juice # liters\n    result = total_juice\n    return result\n"
+      },
+      {
+        "train_index": 18826,
+        "raw_index": 20337,
+        "code": "def solve() -> int:\n    other = 54 - 24 - 15\n    from sympy import Symbol, solve\n    x = Symbol('x')\n    equation = 7*x - other\n    roots = solve(equation)\n    result = roots[0]\n    return result\n"
+      }
+    ],
+    "unused_imports": [
+      {
+        "train_index": 492,
+        "raw_index": 536,
+        "code": "def solve() -> int:\n    from fractions import Fraction\n    s = 0\n    s = 60 * 12 / 5\n    result = s\n    return result\n"
+      },
+      {
+        "train_index": 28909,
+        "raw_index": 31230,
+        "code": "def solve() -> int:\n    from math import sqrt\n    x = 60 - 12\n    x = x - x/2\n    x = x * 2\n    x = 96\n    area = 96 * (96/2 + 12)\n    area = 6144\n    result = 6144\n\n    return result\n"
+      },
+      {
+        "train_index": 140512,
+        "raw_index": 151750,
+        "code": "def solve() -> int:\n    from sympy import symbols, solve\n    x = symbols('x')\n    width = 10\n    perimeter = 66\n    length = round((perimeter - 2*width)/2,2)\n    area = width*length\n    result = area\n\n    return result\n"
+      }
+    ],
+    "unused_assigned_name": [
+      {
+        "train_index": 16414,
+        "raw_index": 17733,
+        "code": "def solve() -> int:\n    initial_down_payment = 290\n    monthly_payment = 35\n    total_price = 730\n    payment = initial_down_payment + (15 * monthly_payment)\n    number_of_months = (total_price - initial_down_payment) / monthly_payment\n    result = round(number_of_months)\n\n    return result\n"
+      },
+      {
+        "train_index": 16423,
+        "raw_index": 17743,
+        "code": "def solve() -> int:\n    total_students = 50\n    spanish_students = 20\n    french_students = 30\n    both_languages_students = 10\n    only_spanish_students = spanish_students - both_languages_students\n    result = only_spanish_students\n    return result\n"
+      },
+      {
+        "train_index": 16531,
+        "raw_index": 17860,
+        "code": "def solve() -> int:\n    side_length = 25  # meters\n    running_speed = 10  # minutes per mile\n    \n    distance = 4 * side_length\n    \n    distance_miles = distance / 1609.34  # 1 mile = 1609.34 meters\n    \n    running_time = distance_miles * running_speed\n    \n    swimming_speed = 2 * running_speed\n    \n    swimming_time = distance_miles * swimming_speed\n    \n    result = swimming_time\n    return result\n"
+      }
+    ],
+    "unused_literal_assignment": [
+      {
+        "train_index": 16423,
+        "raw_index": 17743,
+        "code": "def solve() -> int:\n    total_students = 50\n    spanish_students = 20\n    french_students = 30\n    both_languages_students = 10\n    only_spanish_students = spanish_students - both_languages_students\n    result = only_spanish_students\n    return result\n"
+      },
+      {
+        "train_index": 16534,
+        "raw_index": 17864,
+        "code": "def solve() -> int:\n    original_price = 150 # the original price of the items\n    discount_rate = 0.2 # the discount rate of 20%\n    sale_duration = 2 # the duration of the sale in hours\n    discount_amount = original_price * discount_rate # the amount of money saved by the discount\n    final_price = original_price - discount_amount # the price after applying the discount\n    result = discount_amount # the total amount saved\n\n    return result\n"
+      },
+      {
+        "train_index": 16587,
+        "raw_index": 17921,
+        "code": "def solve() -> int:\n    hours_worked = 0\n    chores_done = 0\n    money_saved = 120\n    cost_of_bike = 300\n    hours_needed = (cost_of_bike - money_saved) / 5\n    result = hours_needed\n\n    return result\n"
+      }
+    ],
+    "dead_assignments_no_calls": [
+      {
+        "train_index": 16400,
+        "raw_index": 17716,
+        "code": "def solve() -> int:\n    age_bob = 0\n    age_alex = 27\n    age_bob = age_alex - 1\n    total_age_in_4_years = age_bob + age_alex + 4\n    result = total_age_in_4_years\n\n    return result\n"
+      },
+      {
+        "train_index": 16414,
+        "raw_index": 17733,
+        "code": "def solve() -> int:\n    initial_down_payment = 290\n    monthly_payment = 35\n    total_price = 730\n    payment = initial_down_payment + (15 * monthly_payment)\n    number_of_months = (total_price - initial_down_payment) / monthly_payment\n    result = round(number_of_months)\n\n    return result\n"
+      },
+      {
+        "train_index": 16423,
+        "raw_index": 17743,
+        "code": "def solve() -> int:\n    total_students = 50\n    spanish_students = 20\n    french_students = 30\n    both_languages_students = 10\n    only_spanish_students = spanish_students - both_languages_students\n    result = only_spanish_students\n    return result\n"
+      }
+    ],
+    "overwritten_before_read": [
+      {
+        "train_index": 16400,
+        "raw_index": 17716,
+        "code": "def solve() -> int:\n    age_bob = 0\n    age_alex = 27\n    age_bob = age_alex - 1\n    total_age_in_4_years = age_bob + age_alex + 4\n    result = total_age_in_4_years\n\n    return result\n"
+      },
+      {
+        "train_index": 16514,
+        "raw_index": 17841,
+        "code": "def solve() -> int:\n    total_payout = 60000\n    emma_received = 0\n    lily_sophia_received = 0\n    \n    emma_received = (total_payout - 2300) / 4\n    \n    lily_sophia_received = (total_payout - emma_received) / 2\n    \n    result = lily_sophia_received\n    return result\n"
+      },
+      {
+        "train_index": 16520,
+        "raw_index": 17847,
+        "code": "def solve() -> int:\n    total_dimes = 0 #intializing the number of dimes \n    \n    dimes_from_grandma = 12 #number of dimes received from grandmother \n    \n    dimes_original = 5 #the number of dimes that Carl had originally \n    \n    total_dimes = dimes_from_grandma + dimes_original\n    \n    \n    result = total_dimes #the result\n\n    return result\n"
+      }
+    ],
+    "unreachable_after_return": [],
+    "terminal_assignment_return": [
+      {
+        "train_index": 16384,
+        "raw_index": 17699,
+        "code": "def solve() -> int:\n    length = 8\n    width = 6\n    perimeter = 2 * (length + width)\n    result = perimeter\n\n    return result\n"
+      },
+      {
+        "train_index": 16385,
+        "raw_index": 17701,
+        "code": "def solve() -> int:\n    score_jack = 40 * 0.15\n    score_ryan = score_jack + 25\n    percentage_ryan = score_ryan/40\n    \n    result = percentage_ryan\n\n    return result\n"
+      },
+      {
+        "train_index": 16386,
+        "raw_index": 17702,
+        "code": "def solve() -> int:\n    principle = 500\n    years = 3\n    interest_rate = 0.02\n    compound_interest = principle * (1+interest_rate)**years\n    result = compound_interest\n    return result\n"
+      }
+    ],
+    "terminal_name_alias_return": [
+      {
+        "train_index": 16384,
+        "raw_index": 17699,
+        "code": "def solve() -> int:\n    length = 8\n    width = 6\n    perimeter = 2 * (length + width)\n    result = perimeter\n\n    return result\n"
+      },
+      {
+        "train_index": 16385,
+        "raw_index": 17701,
+        "code": "def solve() -> int:\n    score_jack = 40 * 0.15\n    score_ryan = score_jack + 25\n    percentage_ryan = score_ryan/40\n    \n    result = percentage_ryan\n\n    return result\n"
+      },
+      {
+        "train_index": 16386,
+        "raw_index": 17702,
+        "code": "def solve() -> int:\n    principle = 500\n    years = 3\n    interest_rate = 0.02\n    compound_interest = principle * (1+interest_rate)**years\n    result = compound_interest\n    return result\n"
+      }
+    ],
+    "function_annotations": [
+      {
+        "train_index": 16384,
+        "raw_index": 17699,
+        "code": "def solve() -> int:\n    length = 8\n    width = 6\n    perimeter = 2 * (length + width)\n    result = perimeter\n\n    return result\n"
+      },
+      {
+        "train_index": 16385,
+        "raw_index": 17701,
+        "code": "def solve() -> int:\n    score_jack = 40 * 0.15\n    score_ryan = score_jack + 25\n    percentage_ryan = score_ryan/40\n    \n    result = percentage_ryan\n\n    return result\n"
+      },
+      {
+        "train_index": 16386,
+        "raw_index": 17702,
+        "code": "def solve() -> int:\n    principle = 500\n    years = 3\n    interest_rate = 0.02\n    compound_interest = principle * (1+interest_rate)**years\n    result = compound_interest\n    return result\n"
+      }
+    ],
+    "docstrings": [],
+    "comments": [
+      {
+        "train_index": 16394,
+        "raw_index": 17710,
+        "code": "def solve() -> int:\n    distance = 0.5 # in miles (10 minutes of walking at 4 miles per hour)\n    \n    time_car = distance / 20 * 60 # in minutes\n    \n    time_walk = (distance / 4 + distance / 20) * 60 # in minutes\n    \n    time_catch_up = time_car - time_walk # in minutes\n    \n    result = time_catch_up\n    \n    return result\n"
+      },
+      {
+        "train_index": 16407,
+        "raw_index": 17726,
+        "code": "def solve() -> int:\n    week_costs = 8 * 10 #Cost for a week \n    total_costs = 100 #Target total cost\n    money_saved = total_costs - week_costs #Calculate the money saved\n    result = money_saved/2 #Calculate money saved per week\n\n    return result\n"
+      },
+      {
+        "train_index": 16447,
+        "raw_index": 17771,
+        "code": "def solve() -> int:\n    volume = 400*6/12 #calculate total fencing volume \n    cost = 45/5 # calculate the cost per gallon \n    result = volume*cost # calculate the total paint cost\n\n    return result\n"
+      }
+    ],
+    "redundant_pass": [],
+    "unused_literal_expression": [
+      {
+        "train_index": 419956,
+        "raw_index": 453401,
+        "code": "def solve() -> int:\n    amount_given = 20\n    price_per_pack = 3\n    number_packs = 4\n    \n    result = amount_given - (price_per_pack * number_packs)\n    \n    \n    4\n\n    return result\n"
+      },
+      {
+        "train_index": 761300,
+        "raw_index": 821897,
+        "code": "def solve() -> int:\n    amount_per_person = 5 \n    number_of_people = 3 \n    \n    result = amount_per_person * number_of_people\n    \n    \n    15\n\n    return result\n"
+      },
+      {
+        "train_index": 834305,
+        "raw_index": 900804,
+        "code": "def solve() -> int:\n    apples_in_box = 18\n    number_given = 0.5*apples_in_box\n    number_eaten = 5\n    \n    result = apples_in_box - number_given - number_eaten\n    \n    \n    7\n\n    return result\n"
+      }
+    ],
+    "dynamic_namespace": [
+      {
+        "train_index": 1250768,
+        "raw_index": 1352243,
+        "code": "def solve() -> int:\n    green_apples = 28\n    ratio = 4 # red apples to green apples\n    total_apples = 0 # we will find out this value later\n    x = (4/3 * green_apples) + green_apples\n    x = 7/3 * green_apples\n    x = 7/3 * 28\n    x = eval('7/3 * 28')\n    x = round(x)\n    result = x\n    return result\n"
+      },
+      {
+        "train_index": 1689278,
+        "raw_index": 1825820,
+        "code": "def solve() -> int:\n    green_apples = 28\n    ratio = 4 # red apples to green apples\n    total_apples = 0 # we will find out this value later\n    x = (4/3 * green_apples) + green_apples\n    x = 7/3 * green_apples\n    x = 7/3 * 28\n    x = eval('7/3 * 28')\n    x = round(x)\n    result = x\n    return result\n"
+      },
+      {
+        "train_index": 1994721,
+        "raw_index": 2154971,
+        "code": "def solve() -> int:\n    given_equation = 'x - 6 = 8'\n    x = eval(given_equation.replace('=','-').replace('x','0'))\n    x += 6\n    result = x\n    return result\n"
+      }
+    ],
+    "straight_line_solve": [
+      {
+        "train_index": 16384,
+        "raw_index": 17699,
+        "code": "def solve() -> int:\n    length = 8\n    width = 6\n    perimeter = 2 * (length + width)\n    result = perimeter\n\n    return result\n"
+      },
+      {
+        "train_index": 16385,
+        "raw_index": 17701,
+        "code": "def solve() -> int:\n    score_jack = 40 * 0.15\n    score_ryan = score_jack + 25\n    percentage_ryan = score_ryan/40\n    \n    result = percentage_ryan\n\n    return result\n"
+      },
+      {
+        "train_index": 16386,
+        "raw_index": 17702,
+        "code": "def solve() -> int:\n    principle = 500\n    years = 3\n    interest_rate = 0.02\n    compound_interest = principle * (1+interest_rate)**years\n    result = compound_interest\n    return result\n"
+      }
+    ]
+  },
+  "notes": [
+    "Counts are dataset rows, not unique code strings. Categories overlap.",
+    "This is static pattern detection, not a proof that deleting flagged code preserves behavior.",
+    "Import side effects, operator overloads, dynamic access, exceptions and data/control flow can matter.",
+    "No solutions were executed or changed. GPU was not used. Validation/test were not included."
+  ]
+}

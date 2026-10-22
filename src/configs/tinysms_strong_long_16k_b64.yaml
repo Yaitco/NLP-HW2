@@ -1,0 +1,15 @@
+defaults:
+  - tinysms_strong_long_16k
+  - _self_
+
+dataloader:
+  batch_size: 64
+
+trainer:
+  accumulate_grad_batches: 2 # Effective batch remains 128.
+
+lr_scheduler:
+  warmup_epochs: 8 # 8 * 1000 / 2 = 4000 weight updates.
+
+writer:
+  run_name: strong_full_clean_sqrt_16k_len128_b64

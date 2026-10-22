@@ -1,0 +1,13 @@
+defaults:
+  - tinysms_baseline
+  - _self_
+
+writer:
+  run_name: amp_10k
+
+trainer:
+  amp:
+    enabled: true
+    # Native BF16 when available; otherwise FP16 with gradient scaling.
+    # CPU training uses FP32. Explicit options: float16, bfloat16.
+    dtype: auto
