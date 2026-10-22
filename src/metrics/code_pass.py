@@ -12,7 +12,7 @@ from src.utils.code_executor import SafeCodeExecutor
 
 class CodePassRate:
     def __init__(self, tokenizer_path, timeout=2.0, memory_mb=512, workers=4,
-                 rtol=1e-5, atol=1e-6, code_format="full"):
+                 rtol=1e-5, atol=1e-6, code_format="full", sandbox=True):
         if code_format not in ("full", "solve_body_result"):
             raise ValueError("Unknown code_format")
         self.code_format = code_format
@@ -21,7 +21,7 @@ class CodePassRate:
         if any(not math.isfinite(v) or v < 0 for v in (rtol, atol)):
             raise ValueError("rtol and atol must be finite and non-negative")
         self.tokenizer = load_tokenizer(tokenizer_path)
-        self.executor = SafeCodeExecutor(timeout=timeout, memory_mb=memory_mb)
+        self.executor = SafeCodeExecutor(timeout=timeout, memory_mb=memory_mb, sandbox=sandbox)
         self.workers = workers
         self.rtol, self.atol = Fraction(str(rtol)), Fraction(str(atol))
         self.reference_cache = {}
@@ -51,7 +51,7 @@ class CodePassRate:
         if len(predicted_rows) != len(label_rows):
             raise ValueError("Generated and reference batch sizes differ")
         predictions, references = self._decode(predicted_rows), self._decode(label_rows)
-        # Each subprocess has its own PID/filesystem/network namespace.
+        # Each solution runs in a fresh subprocess.
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             missing = list(dict.fromkeys(c for c in references if c not in self.reference_cache))
             self.reference_cache.update(zip(missing, pool.map(self.executor.run, missing)))

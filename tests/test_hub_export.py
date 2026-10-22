@@ -211,6 +211,7 @@ class ExportTests(unittest.TestCase):
                     OUTPUT=str(self.root / "prediction.jsonl"),
                 )
         self.assertEqual(voter.return_value.select.call_count, 2)
+        self.assertFalse(voter.call_args.kwargs["sandbox"])
         self.assertEqual(
             [
                 json.loads(line)

@@ -236,7 +236,12 @@ and selects the largest group. Ties use the best length-normalized beam score;
 the output is the best-scoring code in the winning group. If all programs fail,
 the original best beam is returned. References are never used to select a beam.
 The inference timer includes voting; the 180-second T4 budget must be measured.
-Voting requires Bubblewrap and permitted user namespaces, with no unsafe fallback.
+By default, voting uses Bubblewrap and permitted user namespaces, with no automatic
+fallback. For Colab experiments without namespaces, the notebook has `SANDBOX = False`:
+code runs in a fresh process with time/memory limits and a temporary working directory,
+but can access the runtime's files and network. Set `SANDBOX = True` to use Bubblewrap.
+For training/validation the equivalent explicit override is `code_execution.sandbox=false`;
+this applies to both voting and the Pass@1 metric. Local training defaults to `true`.
 No weights change or Hugging Face re-upload is needed; use the updated project code.
 
 To train a model, run the following command:

@@ -1,8 +1,8 @@
-"""Execute untrusted solve() functions in disposable Linux namespaces.
+"""Execute solve() in a fresh process, using Linux namespaces by default.
 
-This requires Bubblewrap and unprivileged user namespaces. There is no fallback
-that executes code in the training process. Inputs/outputs use bounded JSON,
-never pickle. The parent owns the wall-clock deadline.
+Explicit sandbox=False is available for notebook experiments without Bubblewrap.
+It retains resource limits but does not isolate files or networking. Inputs and
+outputs use bounded JSON; the parent owns the wall-clock deadline.
 """
 
 import json
@@ -10,6 +10,7 @@ import math
 import os
 import shutil
 import signal
+import site
 import subprocess
 import sys
 import sysconfig
@@ -36,8 +37,8 @@ import random
 import resource
 import sys
 
-sys.path.insert(0, '/opt/site-packages')
 payload = json.load(sys.stdin)
+sys.path[:0] = payload['site_packages']
 for kind, value in (
     (resource.RLIMIT_AS, payload['memory_bytes']),
     (resource.RLIMIT_CPU, payload['cpu_seconds']),
@@ -117,7 +118,7 @@ print(json.dumps(output))
 
 
 class SafeCodeExecutor:
-    """A fresh, resource-limited sandbox per call, including reference calls."""
+    """Fresh, resource-limited processes; filesystem/network sandbox by default."""
 
     max_code_bytes = 65536
     max_output_bytes = 16384
@@ -127,7 +128,7 @@ class SafeCodeExecutor:
         "non_finite", "output_limit",
     })
 
-    def __init__(self, timeout=2.0, memory_mb=512):
+    def __init__(self, timeout=2.0, memory_mb=512, sandbox=True):
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("timeout must be finite and positive")
         if not isinstance(memory_mb, int) or memory_mb < 64:
@@ -135,19 +136,43 @@ class SafeCodeExecutor:
         # RLIMIT_NPROC is exempt for the host root user. Drop to an
         # unprivileged host identity before starting Bubblewrap in that case.
         self.process_identity = {}
-        if os.geteuid() == 0:
+        if sandbox and os.geteuid() == 0:
             self.process_identity = {"user": 65534, "group": 65534, "extra_groups": []}
-        elif os.getuid() == 0:
+        elif sandbox and os.getuid() == 0:
             raise RuntimeError("Refusing code execution with a root real UID")
         self.timeout = timeout
         self.memory_bytes = memory_mb * 1024**2
-        self.command = self._command()
+        self.sandbox = sandbox
+        self.command = (
+            self._command() if sandbox else [sys.executable, "-I", "-S", "-c", _WORKER]
+        )
+        self.site_packages = (
+            ["/opt/site-packages"]
+            if sandbox
+            else list(
+                dict.fromkeys(
+                    [sysconfig.get_paths()["purelib"], *site.getsitepackages()]
+                )
+            )
+        )
+        self.environment = (
+            None
+            if sandbox
+            else {
+                "PATH": os.defpath,
+                "OPENBLAS_NUM_THREADS": "1",
+                "OMP_NUM_THREADS": "1",
+                "CUDA_VISIBLE_DEVICES": "",
+            }
+        )
         probe = self.run("def solve(): return 42")
         if probe != ExecutionResult("ok", Fraction(42)):
+            if not sandbox:
+                raise RuntimeError(f"Code worker unavailable (probe: {probe.status})")
             raise RuntimeError(
                 f"Code sandbox unavailable (probe: {probe.status}). Requires Linux, "
                 "Bubblewrap with --disable-userns, and permitted user namespaces. "
-                "No unsandboxed fallback is allowed."
+                "No automatic unsandboxed fallback is allowed."
             )
 
     @staticmethod
@@ -185,13 +210,14 @@ class SafeCodeExecutor:
             return ExecutionResult("missing_code")
         if len(code.encode("utf-8")) > self.max_code_bytes:
             return ExecutionResult("code_limit")
-        payload = json.dumps({"code": code, "memory_bytes": self.memory_bytes,
+        payload = json.dumps({"code": code, "site_packages": self.site_packages, "memory_bytes": self.memory_bytes,
                               "cpu_seconds": max(1, math.ceil(self.timeout))}).encode()
         # A regular file, bounded by RLIMIT_FSIZE, avoids unbounded PIPE capture.
-        with tempfile.TemporaryFile() as output:
+        with tempfile.TemporaryFile() as output, tempfile.TemporaryDirectory() as workdir:
             process = subprocess.Popen(
                 self.command, stdin=subprocess.PIPE, stdout=output,
                 stderr=subprocess.DEVNULL, start_new_session=True, close_fds=True,
+                env=self.environment, cwd=None if self.sandbox else workdir,
                 **self.process_identity,
             )
             try:

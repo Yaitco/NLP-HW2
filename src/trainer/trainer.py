@@ -53,6 +53,9 @@ class Trainer(BaseTrainer):
                     self.beam_voter = BeamVoter(
                         self.config.data.tokenizer_path,
                         code_format=self.config.data.get("code_format", "full"),
+                        sandbox=self.config.get("code_execution", {}).get(
+                            "sandbox", True
+                        ),
                     )
                 generated = self.beam_voter.select(*generated)
             for metric in self.metrics["generation"]:

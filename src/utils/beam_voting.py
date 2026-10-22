@@ -1,4 +1,4 @@
-"""Choose one beam by voting over numeric results in the existing sandbox."""
+"""Choose one beam by voting over numeric results from the code executor."""
 
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +22,7 @@ class BeamVoter:
         workers=4,
         rtol=1e-5,
         atol=1e-6,
+        sandbox=True,
     ):
         if code_format not in ("full", "solve_body_result"):
             raise ValueError("Unknown code_format")
@@ -36,7 +37,9 @@ class BeamVoter:
             raise ValueError("Tokenizer must define <eos> and <pad>")
         self.code_format, self.workers = code_format, workers
         self.rtol, self.atol = Fraction(str(rtol)), Fraction(str(atol))
-        self.executor = SafeCodeExecutor(timeout=timeout, memory_mb=memory_mb)
+        self.executor = SafeCodeExecutor(
+            timeout=timeout, memory_mb=memory_mb, sandbox=sandbox
+        )
 
     def select(self, beams, scores):
         """IDs [B, K, T] + length-normalized scores [B, K] -> selected IDs [B, T].

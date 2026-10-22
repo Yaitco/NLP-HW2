@@ -127,6 +127,17 @@ class BeamVotingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "sandbox unavailable"):
                 BeamVoter(self.tokenizer_path)
 
+    def test_explicit_process_mode_works_without_bubblewrap(self):
+        with patch("src.utils.code_executor.shutil.which", return_value=None) as which:
+            voter = BeamVoter(self.tokenizer_path, workers=2, sandbox=False)
+            beams = self.beams([[0, 1, 2]])
+            self.assertTrue(
+                torch.equal(
+                    voter.select(beams, torch.tensor([[-0.1, -0.2, -0.3]])), beams[:, 1]
+                )
+            )
+            which.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

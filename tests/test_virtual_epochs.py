@@ -299,7 +299,9 @@ class VirtualEpochTests(unittest.TestCase):
                 self.assertEqual(result["pass_total"], 2)
         self.assertTrue(generate.call_args.kwargs["return_beams"])
         self.assertEqual(generate.call_args.kwargs["num_beams"], 3)
-        voter.assert_called_once_with("unused.json", code_format="solve_body_result")
+        voter.assert_called_once_with(
+            "unused.json", code_format="solve_body_result", sandbox=True
+        )
         self.assertEqual(voter.return_value.select.call_count, 4)
 
     def test_resume_allows_changed_eval_batch_size_and_preserves_training_state(self):

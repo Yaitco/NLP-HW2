@@ -31,6 +31,9 @@ loss_function:
   _target_: src.loss.Seq2SeqCrossEntropyLoss
   pad_id: ${model.config.pad_id}
 
+code_execution:
+  sandbox: true
+
 optimizer:
   _target_: torch.optim.AdamW
   lr: 0.001

@@ -9,3 +9,4 @@ generation:
     timeout: 2.0 # Per program, including Python startup/imports; parent wall clock.
     memory_mb: 512
     workers: 4
+    sandbox: ${oc.select:code_execution.sandbox,true}

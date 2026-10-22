@@ -22,6 +22,70 @@ class AvailabilityTests(unittest.TestCase):
                 SafeCodeExecutor()
 
 
+class ProcessModeTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with patch("src.utils.code_executor.shutil.which", return_value=None) as which:
+            cls.executor = SafeCodeExecutor(sandbox=False)
+            which.assert_not_called()
+
+    def test_numeric_results_imports_and_invalid_code(self):
+        for code, expected in (
+            ("def solve(): return 42", ExecutionResult("ok", Fraction(42))),
+            (
+                "def solve():\n    import numpy as np\n    return np.int64(7)",
+                ExecutionResult("ok", Fraction(7)),
+            ),
+            (
+                "def solve():\n    import sympy as s\n    return s.Rational(2, 3)",
+                ExecutionResult("ok", Fraction(2, 3)),
+            ),
+            ("def solve(): return 1/0", ExecutionResult("runtime_error")),
+            ("def solve(): return float('nan')", ExecutionResult("non_finite")),
+            ("def solve(:", ExecutionResult("compile_error")),
+        ):
+            with self.subTest(code=code):
+                self.assertEqual(self.executor.run(code), expected)
+
+    def test_fresh_process_with_clean_environment_and_temporary_directory(self):
+        project_dir = str(Path.cwd())
+        with patch.dict(os.environ, {"PROCESS_TEST_SECRET": "hidden"}):
+            code = f"""import os
+def solve():
+    assert os.environ.get('PROCESS_TEST_SECRET') is None
+    assert os.getcwd() != {project_dir!r}
+    import math
+    math.sqrt = lambda value: 999
+    return 0
+"""
+            self.assertEqual(self.executor.run(code).value, 0)
+        self.assertEqual(
+            self.executor.run("import math\ndef solve(): return math.sqrt(4)").value, 2
+        )
+
+    def test_mode_has_host_filesystem_access(self):
+        # This mode is intentionally process isolation, not a filesystem sandbox.
+        with tempfile.NamedTemporaryFile() as file:
+            file.write(b"123")
+            file.flush()
+            self.assertEqual(
+                self.executor.run(
+                    f"def solve(): return int(open({file.name!r}).read())"
+                ).value,
+                123,
+            )
+
+    def test_timeout_terminates_worker_and_next_program_still_runs(self):
+        executor = SafeCodeExecutor(timeout=0.5, sandbox=False)
+        started = time.monotonic()
+        self.assertEqual(
+            executor.run("def solve():\n    while True: pass").status, "timeout"
+        )
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(executor.run("def solve(): return 7").value, 7)
+
+
+
 @unittest.skipUnless(shutil.which("bwrap"), "Bubblewrap is required")
 class SandboxTests(unittest.TestCase):
     @classmethod
