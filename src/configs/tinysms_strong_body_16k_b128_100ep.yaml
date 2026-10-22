@@ -1,0 +1,19 @@
+defaults:
+  - tinysms_strong_body_16k
+  - override lr_scheduler: virtual_warmup_cosine
+  - _self_
+
+dataloader:
+  batch_size: 128
+
+trainer:
+  n_epochs: 100
+  epoch_len: 1000
+  accumulate_grad_batches: 1
+  max_time_hours: null # Finish the fixed step budget instead of stopping by time.
+
+lr_scheduler:
+  warmup_epochs: 1 # 1000 optimizer updates, then cosine over the remaining 99000.
+
+writer:
+  run_name: strong_body_full_clean_cosine_16k_len128_b128_100ep

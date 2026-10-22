@@ -278,6 +278,86 @@ class VirtualEpochTests(unittest.TestCase):
                 trainer.checkpoint_dir / "checkpoint-last.pth"
             )
 
+    def test_validation_voting_selects_one_candidate_and_reuses_the_voter(self):
+        trainer = self.make_trainer()
+        trainer.cfg_trainer.beam_voting = True
+        trainer.cfg_trainer.generation.num_beams = 3
+        trainer.config.data = {
+            "tokenizer_path": "unused.json",
+            "code_format": "solve_body_result",
+        }
+        beams = torch.ones(1, 3, 2, dtype=torch.long)
+        scores = torch.zeros(1, 3)
+        with patch.object(
+            trainer.model, "generate", return_value=(beams, scores)
+        ) as generate, patch("src.trainer.trainer.BeamVoter") as voter:
+            voter.return_value.select.side_effect = lambda ids, scores: ids[:, 0]
+            for epoch in (1, 2):
+                result = trainer._evaluation_epoch(
+                    epoch, "val", self.fixture.batches[:2]
+                )
+                self.assertEqual(result["pass_total"], 2)
+        self.assertTrue(generate.call_args.kwargs["return_beams"])
+        self.assertEqual(generate.call_args.kwargs["num_beams"], 3)
+        voter.assert_called_once_with("unused.json", code_format="solve_body_result")
+        self.assertEqual(voter.return_value.select.call_count, 4)
+
+    def test_resume_allows_changed_eval_batch_size_and_preserves_training_state(self):
+        trainer = self.make_trainer()
+        trainer.config.dataloader = {"batch_size": 128, "num_workers": 0}
+        trainer._train_epoch(1)
+        trainer._save_checkpoint(1)
+        path = trainer.checkpoint_dir / "checkpoint-last.pth"
+        state = torch.load(path, weights_only=False)
+
+        for saved_eval in ("missing", None, 128):
+            with self.subTest(saved_eval=saved_eval):
+                saved = copy.deepcopy(state)
+                if saved_eval != "missing":
+                    saved["config"].dataloader.eval_batch_size = saved_eval
+                torch.save(saved, path)
+
+                resumed = self.make_trainer()
+                resumed.config.dataloader = {
+                    "batch_size": 128,
+                    "num_workers": 0,
+                    "eval_batch_size": 32,
+                }
+                resumed._resume_checkpoint(path)
+                self.fixture.assert_same_parameters(trainer.model, resumed.model)
+                self.assertEqual(resumed.config.dataloader.eval_batch_size, 32)
+                self.assertEqual(resumed.start_epoch, 2)
+                self.assertEqual(resumed.microbatches_seen, 8)
+                self.assertEqual(resumed.optimizer_steps, 2)
+                self.assertEqual(
+                    resumed.lr_scheduler.state_dict(), trainer.lr_scheduler.state_dict()
+                )
+                self.assertEqual(
+                    resumed.optimizer.param_groups[0]["lr"],
+                    trainer.optimizer.param_groups[0]["lr"],
+                )
+                for original, restored in zip(
+                    trainer.optimizer.state.values(), resumed.optimizer.state.values()
+                ):
+                    torch.testing.assert_close(
+                        original["momentum_buffer"], restored["momentum_buffer"]
+                    )
+                self.assertTrue(
+                    torch.equal(torch.get_rng_state(), state["rng_state"]["torch"])
+                )
+
+        for changed in ({"batch_size": 32}, {"num_workers": 2}):
+            with self.subTest(changed=changed):
+                incompatible = self.make_trainer()
+                incompatible.config.dataloader = {
+                    "batch_size": 128,
+                    "num_workers": 0,
+                    "eval_batch_size": 32,
+                    **changed,
+                }
+                with self.assertRaisesRegex(ValueError, "changed dataloader"):
+                    incompatible._resume_checkpoint(path)
+
     def test_wall_time_limit_saves_progress_and_counts_time_on_resume(self):
         trainer = self.make_trainer()
         trainer.time_limit_seconds = 0.3

@@ -189,6 +189,106 @@ class GenerationTests(unittest.TestCase):
                 torch.testing.assert_close(actual, expected, rtol=0.03, atol=0.03)
             self.assertEqual(cache[0][0][0].dtype, torch.bfloat16)
 
+    def test_returned_beams_and_scores_match_teacher_forced_probabilities(self):
+        for num_beams in (1, 4):
+            with self.subTest(num_beams=num_beams):
+                beams, scores = self.model.generate(
+                    self.inputs,
+                    self.mask,
+                    6,
+                    num_beams=num_beams,
+                    length_penalty=0.7,
+                    return_beams=True,
+                )
+                uncached, uncached_scores = self.model.generate(
+                    self.inputs,
+                    self.mask,
+                    6,
+                    num_beams=num_beams,
+                    length_penalty=0.7,
+                    return_beams=True,
+                    use_cache=False,
+                )
+                self.assertEqual(beams.shape[:2], (2, num_beams))
+                self.assertTrue(torch.equal(beams, uncached))
+                torch.testing.assert_close(scores, uncached_scores)
+                best = self.model.generate(
+                    self.inputs,
+                    self.mask,
+                    6,
+                    num_beams=num_beams,
+                    length_penalty=0.7,
+                )
+                self.assertTrue(torch.equal(beams[:, 0], best))
+                sequences = beams.flatten(0, 1)
+                shifted = self.model.prepare_decoder_input_ids_from_labels(sequences)
+                with torch.no_grad():
+                    logits = self.model(
+                        self.inputs.repeat_interleave(num_beams, 0),
+                        self.mask.repeat_interleave(num_beams, 0),
+                        decoder_input_ids=shifted,
+                    )["logits"]
+                log_probs = (
+                    logits.log_softmax(-1).gather(-1, sequences[:, :, None]).squeeze(-1)
+                )
+                for index, sequence in enumerate(sequences.tolist()):
+                    length = sequence.index(3) + 1 if 3 in sequence else len(sequence)
+                    expected = log_probs[index, :length].sum() / length**0.7
+                    torch.testing.assert_close(scores.flatten()[index], expected)
+
+    def test_returned_completed_beams_are_distinct_and_not_repeated_each_step(self):
+        def logits(tokens, *args):
+            scores = torch.full((len(tokens), 17), -100.0)
+            if tokens.shape[1] == 1:
+                scores[:, 3] = math.log(0.5)
+                scores[:, 4] = math.log(0.3)
+                scores[:, 5] = math.log(0.2)
+            else:
+                scores[:, 3] = 0
+            return scores, None
+
+        with patch.object(self.model, "_decode_next", side_effect=logits):
+            beams, scores = self.model.generate(
+                self.inputs,
+                max_new_tokens=4,
+                num_beams=3,
+                length_penalty=0,
+                return_beams=True,
+            )
+        self.assertTrue(
+            torch.equal(beams, torch.tensor([[[3, 0], [4, 3], [5, 3]]] * 2))
+        )
+        torch.testing.assert_close(
+            scores, torch.tensor([[math.log(0.5), math.log(0.3), math.log(0.2)]] * 2)
+        )
+
+    def test_returned_beams_keep_pruned_completions_and_handle_zero_tokens(self):
+        def logits(tokens, *args):
+            scores = torch.full((len(tokens), 17), -100.0)
+            if tokens.shape[1] == 1:
+                scores[:, 4], scores[:, 3] = math.log(0.9), math.log(0.1)
+            elif tokens.shape[1] == 2:
+                scores[:, 5], scores[:, 6] = math.log(0.6), math.log(0.4)
+            else:
+                scores[:] = 0
+            return scores, None
+
+        with patch.object(self.model, "_decode_next", side_effect=logits):
+            beams, _ = self.model.generate(
+                self.inputs,
+                max_new_tokens=3,
+                num_beams=2,
+                length_penalty=0,
+                return_beams=True,
+            )
+        self.assertTrue(torch.equal(beams[:, 0], torch.tensor([[3, 0, 0]] * 2)))
+        for num_beams in (1, 4):
+            beams, scores = self.model.generate(
+                self.inputs, max_new_tokens=0, num_beams=num_beams, return_beams=True
+            )
+            self.assertEqual(beams.shape, (2, num_beams, 0))
+            self.assertEqual(scores.shape, (2, num_beams))
+
     def test_invalid_generation_parameters(self):
         for kwargs in (
             {"num_beams": 0},

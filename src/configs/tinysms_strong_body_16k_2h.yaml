@@ -1,0 +1,12 @@
+defaults:
+  - tinysms_strong_body_16k
+  - _self_
+
+trainer:
+  max_time_hours: 2 # Includes validation; checked after each virtual epoch.
+
+lr_scheduler:
+  warmup_epochs: 2 # 2 * 1000 microbatches / accumulation 2 = 1000 updates.
+
+writer:
+  run_name: strong_body_full_clean_sqrt_16k_len128_b64_2h

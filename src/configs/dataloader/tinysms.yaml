@@ -1,4 +1,5 @@
 _target_: torch.utils.data.DataLoader
 batch_size: 8
+eval_batch_size: null # Use batch_size unless overridden for validation/test.
 num_workers: 0
 pin_memory: true

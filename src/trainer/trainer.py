@@ -1,6 +1,7 @@
 import torch
 
 from src.trainer.base_trainer import BaseTrainer
+from src.utils.beam_voting import BeamVoter
 
 
 class Trainer(BaseTrainer):
@@ -33,6 +34,10 @@ class Trainer(BaseTrainer):
         ):
             # Metrics already consumed teacher-forced logits; generation needs no logits.
             batch.pop("logits", None)
+            voting = self.cfg_trainer.get("beam_voting", False)
+            generation = dict(self.cfg_trainer.generation)
+            if voting:
+                generation["return_beams"] = True
             with torch.autocast(
                 device_type=torch.device(self.device).type,
                 dtype=self.amp_dtype,
@@ -41,8 +46,15 @@ class Trainer(BaseTrainer):
                 generated = self.model.generate(
                     input_ids=batch["input_ids"],
                     attention_mask=batch.get("attention_mask"),
-                    **self.cfg_trainer.generation,
+                    **generation,
                 )
+            if voting:
+                if not hasattr(self, "beam_voter"):
+                    self.beam_voter = BeamVoter(
+                        self.config.data.tokenizer_path,
+                        code_format=self.config.data.get("code_format", "full"),
+                    )
+                generated = self.beam_voter.select(*generated)
             for metric in self.metrics["generation"]:
                 metric.update(generated, batch.get("labels"))
             del generated

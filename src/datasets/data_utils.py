@@ -78,6 +78,9 @@ def get_dataloaders(config, device):
         dataset = datasets[dataset_partition]
 
         loader_config = dict(config.dataloader)
+        eval_batch_size = loader_config.pop("eval_batch_size", None)
+        if dataset_partition != "train" and eval_batch_size is not None:
+            loader_config["batch_size"] = eval_batch_size
         if loader_config.get("num_workers", 0) == 0:
             loader_config.pop("prefetch_factor", None)
             loader_config["persistent_workers"] = False

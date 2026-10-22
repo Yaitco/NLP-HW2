@@ -135,8 +135,8 @@ to export locally without uploading.
 Open `notebooks/inference.ipynb` inside the downloaded project with dependencies
 installed and a GPU enabled. It downloads the model from Hugging Face, reads only
 the public test split in streaming mode, generates in FP16 with KV-cache, and saves
-an ordered list of code strings in `predictions.json`. Model code is imported from
-this project. Private HF repositories require authentication in that environment.
+`prediction.jsonl`, one `{"code": "..."}` object per test example in original order.
+Model code is imported from this project. Private HF repositories require authentication in that environment.
 The printed time includes tokenization/generation but excludes model/data downloads.
 
 ### Compact code targets and a new 16k BPE
@@ -173,6 +173,43 @@ function wrapper inside the existing sandbox. For exported predictions use
 To reuse the normalized dataset after preparation, set `prepare_code: false`.
 To reuse an already trained tokenizer, also set `train_tokenizer: false`.
 
+Train from scratch for 100 virtual epochs with batch 128 and no accumulation:
+
+```bash
+venv/bin/python train.py -cn=tinysms_strong_body_16k_b128_100ep
+```
+
+This is 100,000 microbatches/optimizer updates. The learning rate warms up for
+1,000 updates to `3e-4`, then follows cosine decay to `3e-5`. Validation loss runs
+every 1,000 microbatches and Pass@1 every 20,000 plus the final validation.
+The time limit is disabled so the schedule completes; runtime depends on throughput.
+
+For 200 virtual epochs (200,000 updates), use:
+
+```bash
+venv/bin/python train.py -cn=tinysms_strong_body_16k_b128_200ep
+```
+
+Warmup remains 1,000 updates; cosine spans the remaining 199,000 updates.
+
+The body-code training configs use `dataloader.eval_batch_size: 32` for validation
+(both loss and Pass@1) and test. Training batch size is independent. Override it
+with `dataloader.eval_batch_size=16`, for example; `null` uses the training batch size.
+When resuming a checkpoint, `eval_batch_size` can change; other dataloader settings
+must match. This also works with older checkpoints without `eval_batch_size`.
+
+To compare test questions with the checkpoint's filtered training set:
+
+```bash
+venv/bin/python analyze_similarity.py --batch-size 512 --chunk-size 8192
+```
+
+This uses masked-mean, L2-normalized last-layer encoder vectors and exhaustive
+blockwise cosine search. It saves top-5 train neighbors for every test question
+to `artifacts/train_test_cosine/nearest.jsonl`, numeric results to `nearest.npz`,
+and aggregate statistics to `summary.json`. Train indices refer to rows before
+the length filter. `--train-limit` restricts the search for a quick check.
+
 Validation generation in `tinysms_train` and `tinysms_strong_*` uses KV-cache and
 beam search. Configure it under `trainer.generation`:
 
@@ -189,6 +226,18 @@ The best completed candidate is retained if it leaves the active beam pool.
 KV-cache stores decoder self-attention keys/values and the encoder projections
 for cross-attention. `use_cache: false` recomputes complete prefixes for comparison.
 These options affect Pass@1 generation; teacher-forced validation loss is unchanged.
+
+For numeric voting during validation, use `trainer.generation.num_beams=4`
+and `trainer.beam_voting=true`. In `notebooks/inference.ipynb`, set `NUM_BEAMS = 4`
+and `BEAM_VOTING = True` (start with `BATCH_SIZE = 16` for four beams).
+Voting is off by default. It runs each distinct completed program in the existing
+Bubblewrap sandbox, groups finite numeric results with `rtol=1e-5, atol=1e-6`,
+and selects the largest group. Ties use the best length-normalized beam score;
+the output is the best-scoring code in the winning group. If all programs fail,
+the original best beam is returned. References are never used to select a beam.
+The inference timer includes voting; the 180-second T4 budget must be measured.
+Voting requires Bubblewrap and permitted user namespaces, with no unsafe fallback.
+No weights change or Hugging Face re-upload is needed; use the updated project code.
 
 To train a model, run the following command:
 

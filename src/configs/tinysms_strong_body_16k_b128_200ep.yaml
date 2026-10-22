@@ -1,0 +1,9 @@
+defaults:
+  - tinysms_strong_body_16k_b128_100ep
+  - _self_
+
+trainer:
+  n_epochs: 200
+
+writer:
+  run_name: strong_body_full_clean_cosine_16k_len128_b128_200ep

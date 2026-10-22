@@ -422,8 +422,12 @@ class Seq2SeqTransformer(nn.Module):
         num_beams=1,
         length_penalty=1.0,
         use_cache=True,
+        return_beams=False,
     ):
-        """Return one best sequence per input, without BOS. Finished beams append PAD."""
+        """Return IDs [B, T], or (IDs [B, K, T], scores [B, K]) with return_beams.
+
+        Sequences exclude BOS. Scores include EOS and use length_penalty.
+        """
         if (
             not isinstance(num_beams, int)
             or not 1 <= num_beams <= self.config.vocab_size
@@ -457,8 +461,11 @@ class Seq2SeqTransformer(nn.Module):
         scores[:, 0] = 0  # Start with one live hypothesis, not duplicated beams.
         lengths = torch.zeros_like(scores, dtype=torch.long)
         finished = torch.zeros_like(scores, dtype=torch.bool)
-        best_finished_score = torch.full((batch_size,), -torch.inf, device=device)
-        best_finished_tokens = tokens.new_empty(batch_size, 0)
+        archive_size = num_beams if return_beams else 1
+        finished_scores = torch.full(
+            (batch_size, archive_size), -torch.inf, device=device
+        )
+        finished_tokens = tokens.new_empty(batch_size, archive_size, 0)
         batch_indices = torch.arange(batch_size, device=device)
         beam_offsets = batch_indices[:, None] * num_beams
         cache = None
@@ -471,6 +478,12 @@ class Seq2SeqTransformer(nn.Module):
                 next_tokens = torch.where(
                     finished, self.config.pad_id, logits.argmax(-1)[:, None]
                 )
+                if return_beams:
+                    step_scores = F.log_softmax(logits.float(), dim=-1).gather(
+                        1, next_tokens
+                    )
+                    scores += step_scores.masked_fill(finished, 0)
+                    lengths += (~finished).long()
                 tokens = torch.cat((tokens, next_tokens), dim=1)
                 finished |= next_tokens == self.config.eos_token_id
                 if finished.all():
@@ -493,9 +506,11 @@ class Seq2SeqTransformer(nn.Module):
             next_tokens = selected % self.config.vocab_size
             scores = candidates.flatten(1).gather(1, selected)
             lengths = next_lengths.gather(1, parents)
-            finished = finished.gather(1, parents) | (
+            parent_finished = finished.gather(1, parents)
+            newly_finished = ~parent_finished & (
                 next_tokens == self.config.eos_token_id
             )
+            finished = parent_finished | newly_finished
             parent_indices = (parents + beam_offsets).flatten()
             tokens = torch.cat(
                 (tokens.index_select(0, parent_indices), next_tokens.reshape(-1, 1)),
@@ -511,32 +526,46 @@ class Seq2SeqTransformer(nn.Module):
                     for self_kv, cross_kv in cache
                 ]
             normalized_scores = scores / lengths.clamp_min(1).pow(length_penalty)
-            completed_scores, completed_beams = normalized_scores.masked_fill(
-                ~finished, -torch.inf
-            ).max(dim=1)
-            completed_tokens = tokens.view(batch_size, num_beams, -1)[
-                batch_indices, completed_beams, 1:
-            ]
-            best_finished_tokens = F.pad(
-                best_finished_tokens, (0, 1), value=self.config.pad_id
+            # Archive each completed sequence once, even if it later leaves the live pool.
+            completed_tokens = tokens.view(batch_size, num_beams, -1)[:, :, 1:]
+            archive = torch.cat(
+                (
+                    F.pad(finished_tokens, (0, 1), value=self.config.pad_id),
+                    completed_tokens,
+                ),
+                dim=1,
             )
-            improved = completed_scores > best_finished_score
-            best_finished_tokens = torch.where(
-                improved[:, None], completed_tokens, best_finished_tokens
+            finished_scores, kept = torch.cat(
+                (
+                    finished_scores,
+                    normalized_scores.masked_fill(~newly_finished, -torch.inf),
+                ),
+                dim=1,
+            ).topk(archive_size, dim=1)
+            finished_tokens = archive.gather(
+                1, kept[:, :, None].expand(-1, -1, completed_tokens.shape[2])
             )
-            best_finished_score = torch.maximum(best_finished_score, completed_scores)
             if finished.all():
                 break
         if num_beams == 1:
+            if return_beams:
+                return tokens[:, None, 1:], scores / lengths.clamp_min(1).pow(
+                    length_penalty
+                )
             return tokens[:, 1:]
         normalized_scores = scores / lengths.clamp_min(1).pow(length_penalty)
-        best_scores, best_beams = normalized_scores.max(dim=1)
-        best_tokens = tokens.view(batch_size, num_beams, -1)[
-            batch_indices, best_beams, 1:
-        ]
-        # Do not lose a completed result if later hypotheses displaced it from the pool.
-        return torch.where(
-            (best_finished_score > best_scores)[:, None],
-            best_finished_tokens,
-            best_tokens,
+        # Completed live beams are already archived; do not count them twice.
+        candidates = torch.cat(
+            (finished_tokens, tokens.view(batch_size, num_beams, -1)[:, :, 1:]), dim=1
         )
+        candidate_scores = torch.cat(
+            (finished_scores, normalized_scores.masked_fill(finished, -torch.inf)),
+            dim=1,
+        )
+        selected_scores, selected = candidate_scores.topk(
+            num_beams if return_beams else 1, dim=1
+        )
+        sequences = candidates.gather(
+            1, selected[:, :, None].expand(-1, -1, tokens.shape[1] - 1)
+        )
+        return (sequences, selected_scores) if return_beams else sequences[:, 0]

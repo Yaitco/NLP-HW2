@@ -1,0 +1,25 @@
+defaults:
+  - tinysms_strong_long_16k_b64
+  - _self_
+
+data:
+  dataset_path: artifacts/tokenized_body_full_clean_16k
+  tokenizer_path: artifacts/tokenizer_body_16k.json
+  code_format: solve_body_result
+
+datasets:
+  train:
+    indices_path: artifacts/length128_body_16k/train_indices.npy
+
+dataloader:
+  eval_batch_size: 32
+
+trainer:
+  from_pretrained: null
+  resume_from: null
+  generation:
+    num_beams: 1 # Match the previous run's greedy Pass@1; use KV-cache for speed.
+    use_cache: true
+
+writer:
+  run_name: strong_body_full_clean_sqrt_16k_len128_b64

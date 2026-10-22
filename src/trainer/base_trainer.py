@@ -419,7 +419,15 @@ class BaseTrainer:
             "dataloader",
             "batching",
         ):
-            if saved.get(name) != self.config.get(name):
+            saved_value, current_value = saved.get(name), self.config.get(name)
+            if name == "dataloader":
+                # Evaluation batches do not affect the training stream or schedule.
+                saved_value, current_value = dict(saved_value or {}), dict(
+                    current_value or {}
+                )
+                saved_value.pop("eval_batch_size", None)
+                current_value.pop("eval_batch_size", None)
+            if saved_value != current_value:
                 raise ValueError(
                     f"Cannot resume with changed {name}; use from_pretrained for a new experiment"
                 )

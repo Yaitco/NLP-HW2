@@ -164,10 +164,59 @@ class ExportTests(unittest.TestCase):
                 scope.update(
                     DEVICE="cpu",
                     BATCH_SIZE=2,
-                    OUTPUT=str(self.root / "predictions.json"),
+                    OUTPUT=str(self.root / "prediction.jsonl"),
                 )
         self.assertEqual(
-            json.loads((self.root / "predictions.json").read_text()), ["b", "a", "c"]
+            [
+                json.loads(line)
+                for line in (self.root / "prediction.jsonl").read_text().splitlines()
+            ],
+            [{"code": "b"}, {"code": "a"}, {"code": "c"}],
+        )
+
+    def test_notebook_can_select_beams_by_voting_and_preserves_output_order(self):
+        export_model(self.checkpoint, self.output)
+        notebook = nbformat.read(ROOT_PATH / "notebooks/inference.ipynb", as_version=4)
+        scope = {}
+        questions = [{"question": "b a"}, {"question": "a"}, {"question": "c a a"}]
+
+        def generate(model, input_ids, **kwargs):
+            self.assertTrue(kwargs["return_beams"])
+            self.assertEqual(kwargs["num_beams"], 2)
+            correct = input_ids[:, :1]
+            wrong = torch.full_like(correct, 4)
+            return torch.stack([wrong, correct], dim=1), torch.zeros(len(input_ids), 2)
+
+        with patch(
+            "huggingface_hub.snapshot_download", return_value=str(self.output)
+        ), patch("datasets.load_dataset", return_value=questions), patch(
+            "torch.cuda.synchronize"
+        ), patch(
+            "torch.autocast", return_value=nullcontext()
+        ), patch.object(
+            Seq2SeqTransformer, "generate", generate
+        ), patch(
+            "src.utils.beam_voting.BeamVoter"
+        ) as voter:
+            voter.return_value.select.side_effect = lambda ids, scores: ids[:, 1]
+            for cell in notebook.cells:
+                if cell.cell_type != "code":
+                    continue
+                exec(compile(cell.source, "inference.ipynb", "exec"), scope)
+                scope.update(
+                    DEVICE="cpu",
+                    BATCH_SIZE=2,
+                    NUM_BEAMS=2,
+                    BEAM_VOTING=True,
+                    OUTPUT=str(self.root / "prediction.jsonl"),
+                )
+        self.assertEqual(voter.return_value.select.call_count, 2)
+        self.assertEqual(
+            [
+                json.loads(line)
+                for line in (self.root / "prediction.jsonl").read_text().splitlines()
+            ],
+            [{"code": "b"}, {"code": "a"}, {"code": "c"}],
         )
 
 

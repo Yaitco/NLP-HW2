@@ -55,3 +55,4 @@ trainer:
   seed: 42
   max_grad_norm: 1.0
   skip_oom: false
+  beam_voting: false
