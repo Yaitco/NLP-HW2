@@ -304,6 +304,7 @@ class VirtualEpochTests(unittest.TestCase):
             code_format="solve_body_result",
             sandbox=True,
             execution_batch_size=16,
+            temperature=1.0,
         )
         self.assertEqual(voter.return_value.select.call_count, 4)
 

@@ -141,6 +141,23 @@ The printed time includes tokenization/generation but excludes model/data downlo
 
 ### Compact code targets and a new 16k BPE
 
+For import-free targets and question prefix cleanup, use the separate config:
+
+```bash
+venv/bin/python prepare_data.py --config src/configs/tokenizer_compact_16k.yaml
+venv/bin/python filter_lengths.py --config src/configs/filter_length_128_compact_16k.yaml
+venv/bin/python train.py -cn=tinysms_compact_16k_b128_200ep
+```
+
+This writes new `noimports` artifacts, separate from the previous assignment-based data. Questions in every split lose the prefix
+through the last `: ` followed by a character outside `a-z`. Static imports are
+deleted via AST without assignments or name rewriting. The shared
+math-only import prelude with observed math aliases is added at the start of solve() for execution/output, not included in token targets.
+Only math is restored; targets needing sympy, numpy, Fraction, or other libraries will not execute after import removal. Removing conditional/repeated imports can change behavior; evaluate this preprocessing as an experiment.
+The new training config exports `add_imports` and `clean_questions`, which the
+inference notebook applies automatically. Train this variant from scratch.
+`test_questions.cleaned.txt` is a cleaned copy of the existing question list.
+
 ```bash
 python prepare_data.py --config src/configs/tokenizer_body_16k.yaml
 python filter_lengths.py --config src/configs/filter_length_128_body_16k.yaml
@@ -227,14 +244,21 @@ KV-cache stores decoder self-attention keys/values and the encoder projections
 for cross-attention. `use_cache: false` recomputes complete prefixes for comparison.
 These options affect Pass@1 generation; teacher-forced validation loss is unchanged.
 
-For numeric voting during validation, use `trainer.generation.num_beams=4`
-and `trainer.beam_voting=true`. In `notebooks/inference.ipynb`, set `NUM_BEAMS = 4`
-and `BEAM_VOTING = True` (start with `BATCH_SIZE = 16` for four beams).
-Voting is off by default. It runs each distinct completed program in the existing
-Bubblewrap sandbox, groups finite numeric results with `rtol=1e-5, atol=1e-6`,
-and selects the largest group. Ties use the best length-normalized beam score;
-the output is the best-scoring code in the winning group. If all programs fail,
-the original best beam is returned. References are never used to select a beam.
+The inference notebook defaults to `NUM_BEAMS = 16`, `BEAM_VOTING = True`,
+`LENGTH_PENALTY = 1.0`, `VOTING_TEMPERATURE = 1.0`, and `BATCH_SIZE = 8`. Set
+`LENGTH_PENALTY = 0` to disable length normalization; increasing it favors longer
+candidates relative to shorter ones. Voting uses the normalized scores directly,
+without applying the penalty again. It executes completed programs,
+discards failures, and groups finite numeric answers with `rtol=1e-5, atol=1e-6`.
+Each candidate contributes `exp((score - max_score) / temperature)` to its group.
+Scores are the beam search's length-normalized log probabilities; max_score is
+computed per question over valid candidates for numerical stability. Duplicate
+code executes once but contributes every candidate's weight. The group with the
+largest total weight wins, and its highest-scoring code is returned. Ties use the
+best beam score; if every program fails, the original best beam is returned.
+References are never used to select a beam.
+For validation use `trainer.generation.num_beams=16`, `trainer.beam_voting=true`,
+and `trainer.beam_voting_temperature=1.0`. Training configs leave voting disabled.
 The inference timer includes voting; the 180-second T4 budget must be measured.
 By default, voting uses Bubblewrap and permitted user namespaces, with no automatic
 fallback. For Colab experiments without namespaces, the notebook has `SANDBOX = False`:

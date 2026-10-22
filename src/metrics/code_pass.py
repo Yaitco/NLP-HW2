@@ -12,10 +12,11 @@ from src.utils.code_executor import SafeCodeExecutor
 
 class CodePassRate:
     def __init__(self, tokenizer_path, timeout=2.0, memory_mb=512, workers=4,
-                 rtol=1e-5, atol=1e-6, code_format="full", sandbox=True):
+                 rtol=1e-5, atol=1e-6, code_format="full", sandbox=True, add_imports=False):
         if code_format not in ("full", "solve_body_result"):
             raise ValueError("Unknown code_format")
         self.code_format = code_format
+        self.add_imports = add_imports
         if workers < 1 or not isinstance(workers, int):
             raise ValueError("workers must be a positive integer")
         if any(not math.isfinite(v) or v < 0 for v in (rtol, atol)):
@@ -41,7 +42,7 @@ class CodePassRate:
         codes = self.tokenizer.batch_decode(
             clean, skip_special_tokens=True, clean_up_tokenization_spaces=False,
         )
-        return [restore_code(code) for code in codes] if self.code_format == "solve_body_result" else codes
+        return [restore_code(code, add_imports=self.add_imports) for code in codes] if self.code_format == "solve_body_result" else codes
 
     def update(self, generated_ids, labels):
         if labels is None:

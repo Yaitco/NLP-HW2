@@ -60,3 +60,4 @@ trainer:
   max_grad_norm: 1.0
   skip_oom: false
   beam_voting: false
+  beam_voting_temperature: 1.0

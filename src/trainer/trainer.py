@@ -53,6 +53,14 @@ class Trainer(BaseTrainer):
                     self.beam_voter = BeamVoter(
                         self.config.data.tokenizer_path,
                         code_format=self.config.data.get("code_format", "full"),
+                        temperature=self.cfg_trainer.get(
+                            "beam_voting_temperature", 1.0
+                        ),
+                        **(
+                            {"add_imports": True}
+                            if self.config.data.get("add_imports", False)
+                            else {}
+                        ),
                         sandbox=self.config.get("code_execution", {}).get(
                             "sandbox", True
                         ),

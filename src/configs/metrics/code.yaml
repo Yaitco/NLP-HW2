@@ -4,6 +4,7 @@ generation:
   - _target_: src.metrics.CodePassRate
     tokenizer_path: ${data.tokenizer_path}
     code_format: ${oc.select:data.code_format,full}
+    add_imports: ${oc.select:data.add_imports,false}
     rtol: 1.0e-5
     atol: 1.0e-6
     timeout: 2.0 # Per program, including Python startup/imports; parent wall clock.

@@ -1,0 +1,16 @@
+defaults:
+  - tinysms_strong_body_16k_b128_200ep
+  - _self_
+
+data:
+  dataset_path: artifacts/tokenized_noimports_full_clean_16k
+  tokenizer_path: artifacts/tokenizer_noimports_16k.json
+  add_imports: true
+  clean_questions: true
+
+datasets:
+  train:
+    indices_path: artifacts/length128_noimports_16k/train_indices.npy
+
+writer:
+  run_name: noimports_full_clean_cosine_16k_len128_b128_200ep

@@ -83,6 +83,8 @@ def prepare_code_dataset(config):
             num_proc=preprocessing["num_proc"],
             fn_kwargs={
                 "code_column": config["dataset"]["code_column"],
+                "strip_imports": settings.get("strip_imports", False),
+                "question_column": config["dataset"]["question_column"] if settings.get("clean_questions", False) else None,
             },
             desc=f"Normalize {split} code",
         )

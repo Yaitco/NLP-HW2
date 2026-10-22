@@ -59,16 +59,56 @@ class BeamVotingTests(unittest.TestCase):
     def beams(rows):
         return torch.tensor([[[index + 4, 3, 0] for index in row] for row in rows])
 
-    def test_majority_can_override_best_beam_and_duplicates_get_one_vote(self):
+    def test_weighted_sum_and_duplicate_candidate_weights(self):
         voter = self.voter()
         beams = self.beams([[0, 1, 2, 3], [0, 0, 1, 2]])
         scores = torch.tensor([[-0.1, -0.2, -0.3, -0.4]] * 2)
         actual = voter.select(beams, scores)
-        self.assertTrue(torch.equal(actual, torch.stack([beams[0, 1], beams[1, 2]])))
+        self.assertTrue(torch.equal(actual, torch.stack([beams[0, 1], beams[1, 0]])))
         # Identical code across inputs is executed once per selection call.
         self.assertEqual(self.executor.run.call_count, 4)
         voter.select(beams, scores)
         self.assertEqual(self.executor.run.call_count, 8)
+
+    def test_low_score_majority_loses_to_stronger_single_candidate(self):
+        beams = self.beams([[1, 2, 3, 0]])
+        scores = torch.tensor([[-3.0, -4.0, -5.0, -0.1]])
+        actual = self.voter().select(beams, scores)
+        self.assertTrue(torch.equal(actual, beams[:, 3]))
+
+    def test_temperature_changes_winner_and_score_shift_has_no_effect(self):
+        beams = self.beams([[2, 0, 1]])
+        scores = torch.tensor([[-1.1, -0.1, -1.0]], dtype=torch.float64)
+        # Cold weights: 1 > exp(-9) + exp(-10). Hot weights: exp(-.9) + exp(-1) < 1,
+        # but at T=2 the two lower-scoring candidates together outweigh the top one.
+        cold = self.voter(temperature=0.1).select(beams, scores)
+        hot = self.voter(temperature=2.0).select(beams, scores)
+        self.assertTrue(torch.equal(cold, beams[:, 1]))
+        self.assertTrue(torch.equal(hot, beams[:, 2]))
+        self.assertTrue(
+            torch.equal(hot, self.voter(temperature=2.0).select(beams, scores - 1e6))
+        )
+
+    def test_failed_best_candidate_does_not_underflow_valid_weights(self):
+        beams = self.beams([[0, 1, 2, 4]])
+        scores = torch.tensor(
+            [[-1e6, -1e6 - 0.1, -1e6 - 0.2, 0.0]], dtype=torch.float64
+        )
+        self.assertTrue(torch.equal(self.voter().select(beams, scores), beams[:, 1]))
+
+    def test_temperature_validation(self):
+        for temperature in (0, -1, float("nan"), float("inf")):
+            with self.subTest(temperature=temperature), self.assertRaisesRegex(
+                ValueError, "temperature"
+            ):
+                self.voter(temperature=temperature)
+
+    def test_sixteen_candidates_sum_weights_per_question(self):
+        beams = self.beams([[0] * 7 + [1] * 9, [0] * 7 + [1] * 9])
+        scores = torch.tensor([[-0.1] * 7 + [-0.2] * 9, [-0.1] * 7 + [-2.0] * 9])
+        actual = self.voter().select(beams, scores)
+        self.assertTrue(torch.equal(actual, torch.stack([beams[0, 7], beams[1, 0]])))
+        self.assertEqual(self.executor.run.call_count, 2)
 
     def test_ties_use_best_score_and_all_failures_fall_back_to_best_beam(self):
         voter = self.voter()

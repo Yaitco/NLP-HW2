@@ -58,6 +58,7 @@ def export_model(checkpoint_path, output):
             {
                 "model": asdict(model_config),
                 "code_format": code_format,
+                **({key: config["data"][key] for key in ("add_imports", "clean_questions") if config["data"].get(key)}),
             },
             indent=2,
         )

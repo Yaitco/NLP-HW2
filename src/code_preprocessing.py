@@ -90,16 +90,22 @@ def normalize_code(code):
     return "".join(lines[1:-1])
 
 
-def restore_code(body):
+def restore_code(body, add_imports=False):
     """Wrap an indented generated target for execution by the existing sandbox."""
-    return "def solve():\n" + body.rstrip("\n") + "\n    return result\n"
+    from src.text_cleaning import import_prelude
+    prefix = "".join("    " + line + "\n" for line in import_prelude().splitlines()) if add_imports else ""
+    return "def solve():\n" + prefix + body.rstrip("\n") + "\n    return result\n"
 
 
-def normalize_batch(batch, indices, code_column):
+def normalize_batch(batch, indices, code_column, strip_imports=False, question_column=None):
+    from src.text_cleaning import clean_question, remove_imports
     normalized = []
     for index, code in zip(indices, batch[code_column]):
         try:
-            normalized.append(normalize_code(code))
+            normalized.append(normalize_code(remove_imports(code) if strip_imports and code is not None else code))
         except (SyntaxError, ValueError) as exc:
             raise ValueError(f"Cannot normalize row {index}: {exc}") from exc
-    return {code_column: normalized, "original_code": batch[code_column]}
+    result = {code_column: normalized, "original_code": batch[code_column]}
+    if question_column:
+        result[question_column] = [clean_question(question) for question in batch[question_column]]
+    return result

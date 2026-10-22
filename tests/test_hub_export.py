@@ -158,12 +158,13 @@ class ExportTests(unittest.TestCase):
             lambda self, input_ids, **kwargs: input_ids[:, :1],
         ):
             for cell in notebook.cells:
-                if cell.cell_type != "code":
+                if cell.cell_type != "code" or "colab_setup" in cell.metadata.get("tags", []):
                     continue
                 exec(compile(cell.source, "inference.ipynb", "exec"), scope)
                 scope.update(
                     DEVICE="cpu",
                     BATCH_SIZE=2,
+                    BEAM_VOTING=False,
                     OUTPUT=str(self.root / "prediction.jsonl"),
                 )
         self.assertEqual(
@@ -183,6 +184,7 @@ class ExportTests(unittest.TestCase):
         def generate(model, input_ids, **kwargs):
             self.assertTrue(kwargs["return_beams"])
             self.assertEqual(kwargs["num_beams"], 2)
+            self.assertEqual(kwargs["length_penalty"], 0.7)
             correct = input_ids[:, :1]
             wrong = torch.full_like(correct, 4)
             return torch.stack([wrong, correct], dim=1), torch.zeros(len(input_ids), 2)
@@ -200,19 +202,21 @@ class ExportTests(unittest.TestCase):
         ) as voter:
             voter.return_value.select.side_effect = lambda ids, scores: ids[:, 1]
             for cell in notebook.cells:
-                if cell.cell_type != "code":
+                if cell.cell_type != "code" or "colab_setup" in cell.metadata.get("tags", []):
                     continue
                 exec(compile(cell.source, "inference.ipynb", "exec"), scope)
                 scope.update(
                     DEVICE="cpu",
                     BATCH_SIZE=2,
                     NUM_BEAMS=2,
+                    LENGTH_PENALTY=0.7,
                     BEAM_VOTING=True,
                     OUTPUT=str(self.root / "prediction.jsonl"),
                 )
         self.assertEqual(voter.return_value.select.call_count, 2)
         self.assertFalse(voter.call_args.kwargs["sandbox"])
         self.assertEqual(voter.call_args.kwargs["execution_batch_size"], 16)
+        self.assertEqual(voter.call_args.kwargs["temperature"], 1.0)
         self.assertEqual(
             [
                 json.loads(line)
