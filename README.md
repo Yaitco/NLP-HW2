@@ -277,9 +277,11 @@ but can access the runtime's files and network. Set `SANDBOX = True` to use Bubb
 For training/validation the equivalent explicit override is `code_execution.sandbox=false`;
 this applies to both voting and the Pass@1 metric. Local training defaults to `true`.
 With `SANDBOX = False`, voting groups up to `EXECUTION_BATCH_SIZE = 16` programs per
-process. Simple arithmetic functions are compiled together as one AST module,
-then called with separate globals and individual timeouts. Imports and other
-unsupported constructs retain individual-process execution. Set
+process. Arithmetic functions, including leading math imports and the generated
+math prelude, are compiled together as one AST module. Math is imported once per
+worker; each function retains its own local import bindings, separate globals and
+individual timeout. Writes to module attributes, other imports and unsupported
+constructs retain individual-process execution. Set
 `EXECUTION_BATCH_SIZE = 1` to compare with the previous implementation; training
 uses `code_execution.batch_size` for this setting. Sandboxed execution stays per program.
 No weights change or Hugging Face re-upload is needed; use the updated project code.

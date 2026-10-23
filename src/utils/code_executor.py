@@ -131,10 +131,11 @@ def expired(*args):
     raise CandidateTimeout()
 
 allowed_calls = set('abs round int float bool pow min max sum len range list tuple set dict sorted all any divmod enumerate zip reversed'.split())
+math_names = {name: getattr(math, name) for name in dir(math) if not name.startswith('_')}
 forbidden = (ast.Import, ast.ImportFrom, ast.Attribute, ast.Global, ast.Nonlocal,
              ast.ClassDef, ast.AsyncFunctionDef, ast.Try, ast.TryStar, ast.With,
              ast.AsyncWith, ast.Raise)
-trees, outputs = [], [None] * len(payload['codes'])
+trees, outputs, environments = [], [None] * len(payload['codes']), {}
 for index, code in enumerate(payload['codes']):
     try:
         tree = ast.parse(code)
@@ -145,20 +146,52 @@ for index, code in enumerate(payload['codes']):
         outputs[index] = {'status': 'use_single'}
         continue
     function = tree.body[0] if len(tree.body) == 1 else None
+    bindings, math_aliases, math_calls = {}, set(), set()
+    assignments = []
+    # Only leading math imports are supported in the batch path. Preserve their
+    # local bindings (e.g. gcd = gcd(...)) without importing for each candidate.
+    if isinstance(function, ast.FunctionDef):
+        while function.body and isinstance(function.body[0], (ast.Import, ast.ImportFrom)):
+            node = function.body[0]
+            if isinstance(node, ast.Import) and all(a.name == 'math' for a in node.names):
+                imported = [(a.asname or 'math', math) for a in node.names]
+                math_aliases.update(name for name, _ in imported)
+            elif (isinstance(node, ast.ImportFrom) and node.module == 'math'
+                  and not node.level and all(a.name in math_names for a in node.names)):
+                imported = [(a.asname or a.name, math_names[a.name]) for a in node.names]
+                math_calls.update(name for name, value in imported if callable(value))
+            else:
+                break
+            function.body.pop(0)
+            for name, value in imported:
+                internal = f'_batch_import_{len(bindings)}'
+                bindings[internal] = value
+                assignments.append(ast.Assign(
+                    targets=[ast.Name(id=name, ctx=ast.Store())],
+                    value=ast.Name(id=internal, ctx=ast.Load())))
     nodes = list(ast.walk(tree))
+    def math_attribute(node):
+        return (isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Load)
+                and isinstance(node.value, ast.Name) and node.value.id in math_aliases
+                and node.attr in math_names)
     if (not isinstance(function, ast.FunctionDef) or function.name != 'solve'
         or function.decorator_list or function.returns or getattr(function, 'type_params', [])
         or function.args.args or function.args.posonlyargs or function.args.kwonlyargs
         or function.args.vararg or function.args.kwarg
         or sum(isinstance(node, ast.FunctionDef) for node in nodes) != 1
-        or any(isinstance(node, forbidden) for node in nodes)
-        or any(isinstance(node, ast.Name) and node.id.startswith('__') for node in nodes)
+        or any(isinstance(node, forbidden) and not math_attribute(node) for node in nodes)
+        or any(isinstance(node, ast.Name) and node.id.startswith(('__', '_batch_import_')) for node in nodes)
+        or any(isinstance(target, ast.Name) and target.id.startswith(('__', '_batch_import_'))
+               for assignment in assignments for target in assignment.targets)
         or any(isinstance(node, ast.Call) and
-               (not isinstance(node.func, ast.Name) or node.func.id not in allowed_calls)
+               not ((isinstance(node.func, ast.Name) and node.func.id in allowed_calls | math_calls)
+                    or (math_attribute(node.func) and callable(math_names[node.func.attr])))
                for node in nodes)):
         outputs[index] = {'status': 'use_single'}
         continue
     function.name = f'_candidate_{index}'
+    function.body = assignments + function.body
+    environments[index] = bindings
     trees.append(function)
 
 namespace = {'__name__': '__solution__'}
@@ -172,7 +205,7 @@ for index, output in enumerate(outputs):
     if output is None:
         # Each function gets its own globals, including its original solve name.
         function = types.FunctionType(namespace[f'_candidate_{index}'].__code__,
-                                      {'__name__': '__solution__'}, 'solve')
+                                      {'__name__': '__solution__', **environments[index]}, 'solve')
         function.__globals__['solve'] = function
         signal.signal(signal.SIGALRM, expired)
         signal.setitimer(signal.ITIMER_REAL, payload['timeout'])
@@ -301,7 +334,7 @@ class SafeCodeExecutor:
         return ExecutionResult(error) if error else self._decode_result(data)
 
     def run_batch(self, codes):
-        """One AST module/process for simple arithmetic; complex code uses run()."""
+        """One process for arithmetic/math imports; complex code uses run()."""
         if self.sandbox or len(codes) <= 1:
             return [self.run(code) for code in codes]
         results, valid = [None] * len(codes), []

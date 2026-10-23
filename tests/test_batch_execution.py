@@ -6,6 +6,7 @@ import unittest
 from fractions import Fraction
 from unittest.mock import patch
 
+from src.code_preprocessing import restore_code
 from src.utils.code_executor import ExecutionResult, SafeCodeExecutor
 
 
@@ -46,6 +47,30 @@ class BatchExecutionTests(unittest.TestCase):
         self.assertEqual(
             self.executor.run_batch(codes), [self.executor.run(code) for code in codes]
         )
+
+    def test_math_prelude_runs_in_one_process_with_local_import_bindings(self):
+        codes = [restore_code(body, add_imports=True) for body in [
+            "    gcd = gcd(15, 9)\n    result = gcd\n",
+            "    result = gcd(15, 9) + math.sqrt(4)\n",
+            "    result = choose(5, 2) + fact(3)\n",
+            "    result = pow(2, 3)\n",
+            "    result = 1 / 0\n",
+            "    result = missing_name\n",
+        ]]
+        expected = [self.executor.run(code) for code in codes]
+        with patch('src.utils.code_executor.subprocess.Popen', wraps=subprocess.Popen) as popen:
+            actual = self.executor.run_batch(codes)
+        self.assertEqual(actual, expected)
+        self.assertEqual(popen.call_count, 1)
+
+    def test_math_aliases_are_local_and_internal_name_collisions_fall_back(self):
+        codes = [
+            'def solve():\n    import math as m\n    from math import sqrt as root\n    root = root(9)\n    return m.ceil(root)',
+            'def solve():\n    import math\n    return root(4)',
+            'def solve():\n    from math import sqrt as _batch_import_0\n    return _batch_import_0(4)',
+            'def solve():\n    import math\n    _batch_import_0 = 3\n    return math.sqrt(4)',
+        ]
+        self.assertEqual(self.executor.run_batch(codes), [self.executor.run(code) for code in codes])
 
     def test_timeout_is_per_candidate_and_later_candidates_still_run(self):
         executor = SafeCodeExecutor(timeout=0.5, sandbox=False)
