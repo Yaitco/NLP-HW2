@@ -257,6 +257,16 @@ code executes once but contributes every candidate's weight. The group with the
 largest total weight wins, and its highest-scoring code is returned. Ties use the
 best beam score; if every program fails, the original best beam is returned.
 References are never used to select a beam.
+For optional validation tuning in the notebook, set `RUN_TUNING = True` and point
+`VALIDATION_PATH` to the prepared `code_noimports_full_clean/validation` directory.
+Candidates, numeric results, scores and original token lengths are cached in
+`TUNING_CACHE`. First, length penalty is selected on the tune half using the best
+executable candidate; then voting temperature is selected on the same half.
+The check half and full validation are reported without affecting selection.
+Invalid references are excluded and counted. Selected parameters are applied to
+test generation below. Rescoring uses `length ** alpha` on a fixed candidate pool;
+regenerating with another penalty can change that pool. Cache metadata rejects
+reuse with different model revisions, validation fingerprints or beam settings.
 For validation use `trainer.generation.num_beams=16`, `trainer.beam_voting=true`,
 and `trainer.beam_voting_temperature=1.0`. Training configs leave voting disabled.
 The inference timer includes voting; the 180-second T4 budget must be measured.

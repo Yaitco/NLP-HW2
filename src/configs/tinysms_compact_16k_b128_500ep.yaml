@@ -1,0 +1,9 @@
+defaults:
+  - tinysms_compact_16k_b128_200ep
+  - _self_
+
+trainer:
+  n_epochs: 500
+
+writer:
+  run_name: noimports_full_clean_cosine_16k_len128_b128_500ep

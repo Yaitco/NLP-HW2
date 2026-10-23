@@ -12,6 +12,53 @@ from src.utils.code_executor import SafeCodeExecutor
 from src.utils.io_utils import ROOT_PATH
 
 
+def rescore_lengths(scores, lengths, old_penalty, new_penalty):
+    """Re-rank a fixed beam pool using its original generated token lengths."""
+    return [
+        score * max(1, length) ** (old_penalty - new_penalty)
+        for score, length in zip(scores, lengths)
+    ]
+
+
+def same_result(left, right, rtol=1e-5, atol=1e-6):
+    if left is None or right is None:
+        return False
+    return abs(left - right) <= max(
+        Fraction(str(atol)), Fraction(str(rtol)) * max(abs(left), abs(right))
+    )
+
+
+def weighted_consensus_index(values, scores, temperature=1.0, rtol=1e-5, atol=1e-6):
+    """Select with cached execution results; no code execution here."""
+    if not math.isfinite(temperature) or temperature <= 0:
+        raise ValueError("temperature must be finite and positive")
+    order = sorted(
+        range(len(scores)),
+        key=lambda j: scores[j] if math.isfinite(scores[j]) else -math.inf,
+        reverse=True,
+    )
+    valid = [j for j in order if values[j] is not None and math.isfinite(scores[j])]
+    if not valid:
+        return order[0]
+    groups = []
+    for j in valid:
+        for group in groups:
+            if same_result(values[j], values[group[0]], rtol, atol):
+                group.append(j)
+                break
+        else:
+            groups.append([j])
+    maximum = scores[valid[0]]
+    best = max(
+        groups,
+        key=lambda group: (
+            math.fsum(math.exp((scores[j] - maximum) / temperature) for j in group),
+            scores[group[0]],
+        ),
+    )
+    return best[0]
+
+
 class BeamVoter:
     def __init__(
         self,
@@ -51,13 +98,8 @@ class BeamVoter:
             timeout=timeout, memory_mb=memory_mb, sandbox=sandbox
         )
 
-    def select(self, beams, scores):
-        """IDs [B, K, T] + length-normalized scores [B, K] -> selected IDs [B, T].
-
-        Each valid candidate contributes exp((score - max_score) / temperature).
-        Identical code is executed once, but each candidate contributes its weight.
-        Ties use the best beam score; all failures fall back to the original best.
-        """
+    def evaluate(self, beams, scores):
+        """Decode and execute once; return CPU codes, results, lengths and scores."""
         if (
             beams.ndim != 3
             or scores.ndim != 2
@@ -102,52 +144,34 @@ class BeamVoter:
                 )
             results = dict(zip(runnable, values))
 
-        selected, k = [], beams.shape[1]
-        for batch_index, row_scores in enumerate(score_rows):
-            order = sorted(
-                range(k),
-                key=lambda i: (
-                    row_scores[i] if math.isfinite(row_scores[i]) else -math.inf
-                ),
-                reverse=True,
-            )
-            valid = [
-                index
-                for index in order
-                if complete[batch_index * k + index]
-                and math.isfinite(row_scores[index])
-                and results[codes[batch_index * k + index]].status == "ok"
-            ]
-            max_score = row_scores[valid[0]] if valid else 0.0
-            groups = []
-            for index in valid:
-                flat = batch_index * k + index
-                code = codes[flat]
-                result = results.get(code)
-                weight = math.exp((row_scores[index] - max_score) / self.temperature)
-                for group in groups:
-                    value = group["value"]
-                    if abs(result.value - value) <= max(
-                        self.atol, self.rtol * max(abs(result.value), abs(value))
-                    ):
-                        group["members"].append(index)
-                        group["weights"].append(weight)
-                        break
-                else:
-                    groups.append(
-                        {"value": result.value, "members": [index], "weights": [weight]}
-                    )
-            winner = (
-                max(
-                    groups,
-                    key=lambda group: (
-                        math.fsum(group["weights"]),
-                        row_scores[group["members"][0]],
-                    ),
-                )
-                if groups
+        k = beams.shape[1]
+        values = [
+            (
+                results[code].value
+                if done and math.isfinite(score) and results[code].status == "ok"
                 else None
             )
-            selected.append(winner["members"][0] if winner else order[0])
+            for code, done, score in zip(codes, complete, flat_scores)
+        ]
+        lengths = [
+            row.index(self.eos) + 1 if done else len(row)
+            for row, done in zip(rows, complete)
+        ]
+        return {
+            "codes": [codes[i : i + k] for i in range(0, len(codes), k)],
+            "results": [values[i : i + k] for i in range(0, len(values), k)],
+            "lengths": [lengths[i : i + k] for i in range(0, len(lengths), k)],
+            "scores": score_rows,
+        }
+
+    def select(self, beams, scores):
+        """Execute candidates, then select the best code by weighted consensus."""
+        details = self.evaluate(beams, scores)
+        selected = [
+            weighted_consensus_index(
+                values, row_scores, self.temperature, self.rtol, self.atol
+            )
+            for values, row_scores in zip(details["results"], details["scores"])
+        ]
         chosen = torch.tensor(selected, dtype=torch.long, device=beams.device)
         return beams[torch.arange(len(selected), device=beams.device), chosen]
