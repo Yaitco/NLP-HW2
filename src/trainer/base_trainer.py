@@ -1,3 +1,4 @@
+import copy
 import gc
 import math
 import random
@@ -64,6 +65,9 @@ class BaseTrainer:
         self.log_step = cfg.get("log_step", 50)
         self.pass_every_epochs = cfg.get("pass_every_epochs", 1)
         self.save_period = cfg.get("save_period", 1)
+        self.keep_last_checkpoints = cfg.get("keep_last_checkpoints", 0)
+        if type(self.keep_last_checkpoints) is not int or self.keep_last_checkpoints < 0:
+            raise ValueError("keep_last_checkpoints must be a non-negative integer")
         for value in (self.log_step, self.pass_every_epochs, self.save_period):
             if type(value) is not int or value < 1:
                 raise ValueError(
@@ -139,6 +143,19 @@ class BaseTrainer:
         return self._elapsed_training_seconds() >= self.time_limit_seconds
 
     def _train_process(self):
+        if (
+            self.cfg_trainer.get("validate_before_training", False)
+            and self.microbatches_seen == 0
+        ):
+            logs = {}
+            for part, loader in self.evaluation_dataloaders.items():
+                values = self._evaluation_epoch(
+                    0, part, loader, compute_generation=True, step=0
+                )
+                logs.update({f"{part}_{name}": value for name, value in values.items()})
+            self.logger.info(f"Baseline before training: {logs}")
+            if self._monitor_performance(logs):
+                self._save_checkpoint(0, save_best=True)
         for epoch in range(self.start_epoch, self.epochs + 1):
             if (
                 self.microbatches_seen >= self.total_microbatches
@@ -295,7 +312,14 @@ class BaseTrainer:
         generation_metrics = (
             self.metrics.get("generation", []) if compute_generation else []
         )
-        for metric in generation_metrics:
+        compare_greedy = compute_generation and self.cfg_trainer.get(
+            "compare_greedy", False
+        )
+        if compare_greedy and not hasattr(self, "greedy_metrics"):
+            # Share immutable setup/reference caches, but keep separate counters.
+            self.greedy_metrics = [copy.copy(metric) for metric in generation_metrics]
+        greedy_metrics = self.greedy_metrics if compare_greedy else []
+        for metric in [*generation_metrics, *greedy_metrics]:
             metric.reset()
         device = torch.device(self.device)
         devices = (
@@ -314,11 +338,19 @@ class BaseTrainer:
                 )
                 self.writer.add_scalar("epoch", epoch)
                 result = self._log_scalars(self.evaluation_metrics)
-                for metric in generation_metrics:
-                    values = metric.compute()
-                    for name, value in values.items():
-                        self.writer.add_scalar(name, value)
-                    result.update(values)
+                groups = [
+                    ("beam_" if compare_greedy else "", generation_metrics),
+                    ("greedy_", greedy_metrics),
+                ]
+                for prefix, group in groups:
+                    for metric in group:
+                        values = {
+                            prefix + name: value
+                            for name, value in metric.compute().items()
+                        }
+                        for name, value in values.items():
+                            self.writer.add_scalar(name, value)
+                        result.update(values)
             return result
         finally:
             self.evaluation_metrics.reset()
@@ -399,6 +431,21 @@ class BaseTrainer:
             if self.config.writer.get("log_checkpoints", False):
                 self.writer.add_checkpoint(str(path), str(self.checkpoint_dir.parent))
             self.logger.info(f"Saved {path}")
+
+        if self.keep_last_checkpoints:
+            path = self.checkpoint_dir / f"checkpoint-epoch{epoch:06d}.pth"
+            temporary = path.with_suffix(".pth.tmp")
+            temporary.unlink(missing_ok=True)
+            # Same immutable file as last; later saves replace last atomically.
+            temporary.hardlink_to(self.checkpoint_dir / "checkpoint-last.pth")
+            temporary.replace(path)
+            snapshots = sorted(
+                (p for p in self.checkpoint_dir.glob("checkpoint-epoch*.pth")
+                 if p.stem.removeprefix("checkpoint-epoch").isdigit()),
+                key=lambda p: int(p.stem.removeprefix("checkpoint-epoch")),
+            )
+            for old in snapshots[:-self.keep_last_checkpoints]:
+                old.unlink()
 
     def _resume_checkpoint(self, resume_path):
         # Training checkpoints contain optimizer/config/RNG: load only trusted files.

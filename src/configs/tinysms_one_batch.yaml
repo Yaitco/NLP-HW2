@@ -54,6 +54,7 @@ trainer:
   override: false
   monitor: 'off'
   save_period: 1
+  keep_last_checkpoints: 10
   early_stop: 1
   save_dir: saved
   seed: 42

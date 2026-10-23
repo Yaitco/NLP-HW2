@@ -215,6 +215,15 @@ with `dataloader.eval_batch_size=16`, for example; `null` uses the training batc
 When resuming a checkpoint, `eval_batch_size` can change; other dataloader settings
 must match. This also works with older checkpoints without `eval_batch_size`.
 
+`trainer.keep_last_checkpoints: 10` retains the ten most recent numbered snapshots
+(`checkpoint-epoch000001.pth`, etc.), in addition to `checkpoint-last.pth` and
+`model_best.pth`. Snapshots contain full training state and are saved every
+`trainer.save_period` pseudoepochs (default: 1); older numbered snapshots are
+removed. Set retention to 0 to disable new numbered snapshots. The latest snapshot
+shares its file data with `checkpoint-last.pth` via a hard link; atomic replacement
+on later saves preserves the older weights. These snapshots can later be used for
+exponentially weighted averaging; online EMA is not enabled by this option.
+
 To compare test questions with the checkpoint's filtered training set:
 
 ```bash
@@ -319,3 +328,49 @@ This repository is based on a heavily modified fork of [pytorch-template](https:
 ## License
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](/LICENSE)
+
+Retrieval fine-tuning experiment for the 640-wide 6/6 model (prepare only; run
+when the GPU is available):
+
+```bash
+venv/bin/python analyze_similarity.py \
+  --checkpoint saved/noimports_640_6x6_cosine_16k_len128_b64_acc2_1000ep/model_best.pth \
+  --query-split validation --top-k 64 \
+  --exclude-identical-questions --save-train-subset \
+  --batch-size 128 --chunk-size 8192 \
+  --output artifacts/retrieval_val64
+
+venv/bin/python train.py -cn=tinysms_retrieval_val64
+```
+
+Retrieval uses masked-mean, normalized encoder vectors and exhaustive cosine
+search over the checkpoint's filtered train split. Exact tokenized matches to
+any validation question are excluded before ranking. The union of top-64
+neighbors is deduplicated by train row ID (at most 131,072 rows for 2,048 queries).
+The output includes `train_indices.npy/json`, `nearest.npz`, `nearest.jsonl`,
+`summary.json`, and frozen `initial_model.pth` weights. The source checkpoint may
+continue changing; fine-tuning starts from the exact same frozen weights used
+for retrieval. Use a new output directory for a new retrieval experiment.
+
+Fine-tuning uses a fresh optimizer, constant LR `1e-5`, batch 64 with accumulation
+2, and 20 full passes over the retrieved mini-dataset (`epoch_len: null`). Before
+training and after every pass it reports `val_loss`, `val_beam_pass_at_1` (best of
+16 beams by model score, no execution voting), and `val_greedy_pass_at_1`.
+Validation batch size is 8. The best checkpoint is selected by beam Pass@1;
+checkpoints/logs are separate from the main run in
+`saved/retrieval_val64_640_lr1e5_20ep/`. Override `trainer.n_epochs` to change the
+number of full passes. Validation questions guide training-data selection, so
+this metric measures adaptation to that validation set, not independent
+held-out generalization. Validation solutions are never used in retrieval or
+as fine-tuning targets.
+
+For Kaggle, open `notebooks/retrieval_kaggle.ipynb`. First push the experiment code
+to the GitHub repository cloned by the notebook. Enable Internet, one GPU and the
+`GITHUB_HSE_HW` / `COMET_API_KEY` secrets. Attach a Kaggle Dataset containing your
+`model_best.pth` and its matching `artifacts/tokenized_noimports_full_clean_16k`,
+`artifacts/tokenizer_noimports_16k.json`, and `artifacts/length128_noimports_16k`
+folders/files; keep the `artifacts/` layout and include all Arrow data files.
+Set `INPUT_ROOT` to its mounted location. The notebook links read-only data,
+creates a training config matching the checkpoint architecture, runs retrieval,
+then fine-tuning. AMP uses FP16 on GPUs without native BF16, including T4.
+Execution explicitly uses `sandbox=False` for the Kaggle runtime.

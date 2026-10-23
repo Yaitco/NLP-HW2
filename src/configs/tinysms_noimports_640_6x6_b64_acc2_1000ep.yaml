@@ -1,0 +1,27 @@
+defaults:
+  - tinysms_compact_16k_b128_500ep
+  - _self_
+
+model:
+  config:
+    d_model: 640
+    n_heads: 10
+    encoder_layers: 6
+    decoder_layers: 6
+    d_ff: 2560
+
+dataloader:
+  batch_size: 64
+
+trainer:
+  n_epochs: 1000
+  epoch_len: 1000
+  accumulate_grad_batches: 2
+  resume_from: null
+  from_pretrained: null
+
+lr_scheduler:
+  warmup_epochs: 2 # 2000 microbatches = 1000 optimizer updates.
+
+writer:
+  run_name: noimports_640_6x6_cosine_16k_len128_b64_acc2_1000ep

@@ -22,6 +22,17 @@ def masked_mean(hidden, mask):
     return F.normalize(pooled, dim=-1)
 
 
+def encoder_dtype(device):
+    if device.type != "cuda":
+        return torch.float32
+    with torch.cuda.device(device):
+        return (
+            torch.bfloat16
+            if torch.cuda.is_bf16_supported(including_emulation=False)
+            else torch.float16
+        )
+
+
 @torch.inference_mode()
 def encode(model, rows, device):
     if any(not row for row in rows):
@@ -34,7 +45,9 @@ def encode(model, rows, device):
     inputs = torch.from_numpy(inputs).to(device)
     mask = inputs != model.config.pad_id
     with torch.autocast(
-        device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
+        device_type=device.type,
+        dtype=encoder_dtype(device),
+        enabled=device.type == "cuda",
     ):
         hidden = model.encoder(
             model.src_pos_embedding(inputs), model.make_source_allowed_mask(mask)
@@ -53,6 +66,28 @@ def merge_nearest(queries, vectors, row_ids, best_scores, best_ids):
     return scores, ids.gather(1, order)
 
 
+def exclude_identical(rows, row_ids, question_keys):
+    """Exclude exact model-visible matches to ANY query before ranking."""
+    keep = [i for i, row in enumerate(rows) if tuple(row) not in question_keys]
+    return [rows[i] for i in keep], np.asarray(row_ids)[keep]
+
+
+def save_train_subset(output, nearest_ids, source_fingerprint, source_rows, metadata):
+    """Store original train row IDs in the format consumed by TinySMSDataset."""
+    if nearest_ids.ndim != 2 or np.any(nearest_ids < 0):
+        raise ValueError("Not enough eligible train rows for top-k")
+    indices = np.unique(nearest_ids)
+    np.save(output / "train_indices.npy", indices)
+    manifest = dict(
+        metadata,
+        source_fingerprint=source_fingerprint,
+        source_rows=source_rows,
+        kept_rows=len(indices),
+    )
+    (output / "train_indices.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    return len(indices)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -63,6 +98,13 @@ def main():
     parser.add_argument("--batch-size", type=int, default=512)
     parser.add_argument("--chunk-size", type=int, default=16384)
     parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--query-split", choices=["test", "validation"], default="test")
+    parser.add_argument("--exclude-identical-questions", action="store_true")
+    parser.add_argument(
+        "--save-train-subset",
+        action="store_true",
+        help="Save the deduplicated neighbor union and frozen initial weights",
+    )
     parser.add_argument(
         "--train-limit",
         type=int,
@@ -87,11 +129,28 @@ def main():
     model.load_state_dict(checkpoint["state_dict"], strict=True)
     model = model.to(device).eval()
     checkpoint_epoch = checkpoint["epoch"]
+    output = ROOT_PATH / args.output
+    if args.save_train_subset:
+        if output.exists() and any(output.iterdir()):
+            raise FileExistsError(f"Use an empty output directory: {output}")
+        output.mkdir(parents=True, exist_ok=True)
+        # Freeze the same weights for retrieval and later fine-tuning. The source
+        # checkpoint can keep changing while the original training continues.
+        torch.save(
+            {
+                "state_dict": checkpoint["state_dict"],
+                "config": config,
+                "epoch": checkpoint_epoch,
+            },
+            output / "initial_model.pth",
+        )
     del checkpoint
 
     data_path = ROOT_PATH / config.data.dataset_path
     train = load_from_disk(str(data_path / "train"))
-    test = load_from_disk(str(data_path / "test")).select_columns(["input_ids"])
+    test = load_from_disk(str(data_path / args.query_split)).select_columns(
+        ["input_ids"]
+    )
     indices_path = ROOT_PATH / config.datasets.train.indices_path
     manifest = json.loads(indices_path.with_suffix(".json").read_text())
     if manifest["source_fingerprint"] != train._fingerprint or manifest[
@@ -105,8 +164,13 @@ def main():
         indices = indices[: args.train_limit]
     if len(indices) < args.top_k:
         raise ValueError("Train is smaller than top-k")
+    source_fingerprint, source_rows = train._fingerprint, len(train)
     train = train.select_columns(["input_ids"])
     test_rows = test[:]["input_ids"]
+    question_keys = (
+        {tuple(row) for row in test_rows} if args.exclude_identical_questions else set()
+    )
+    excluded_rows, searched_rows = 0, 0
     output = ROOT_PATH / args.output
     output.mkdir(parents=True, exist_ok=True)
     tokenizer_path = ROOT_PATH / config.data.tokenizer_path
@@ -132,7 +196,7 @@ def main():
             for start in range(0, len(test_rows), args.batch_size)
         ]
     )
-    np.save(output / "test_embeddings.npy", queries.cpu().numpy())
+    np.save(output / f"{args.query_split}_embeddings.npy", queries.cpu().numpy())
     best_scores = torch.full((len(test), args.top_k), -torch.inf, device=device)
     best_ids = torch.full((len(test), args.top_k), -1, dtype=torch.long, device=device)
     train_sum = torch.zeros(queries.shape[1], dtype=torch.float64, device=device)
@@ -143,6 +207,14 @@ def main():
         for start in range(0, len(indices), args.chunk_size):
             source_ids = np.asarray(indices[start : start + args.chunk_size])
             rows = train[source_ids.tolist()]["input_ids"]
+            original_size = len(rows)
+            if question_keys:
+                rows, source_ids = exclude_identical(rows, source_ids, question_keys)
+            excluded_rows += original_size - len(rows)
+            progress.update(original_size)
+            if not rows:
+                continue
+            searched_rows += len(rows)
             # Local length sorting reduces padding; source row IDs follow the same order.
             order = np.argsort(list(map(len, rows)), kind="stable")
             rows = [rows[index] for index in order]
@@ -157,15 +229,35 @@ def main():
             best_scores, best_ids = merge_nearest(
                 queries, vectors, row_ids, best_scores, best_ids
             )
-            progress.update(len(rows))
+
+    if searched_rows < args.top_k:
+        raise ValueError(
+            "Not enough train rows remain after excluding identical questions"
+        )
 
     # For normalized vectors, the mean of ALL pairwise cosines equals this dot product.
     mean_pairwise = float(
-        (queries.double().mean(0) * (train_sum / len(indices))).sum().item()
+        (queries.double().mean(0) * (train_sum / searched_rows)).sum().item()
     )
     scores, nearest_ids = best_scores.cpu().numpy(), best_ids.cpu().numpy()
     elapsed = time.perf_counter() - started
     np.savez(output / "nearest.npz", scores=scores, train_indices=nearest_ids)
+    subset_rows = None
+    if args.save_train_subset:
+        subset_rows = save_train_subset(
+            output,
+            nearest_ids,
+            source_fingerprint,
+            source_rows,
+            {
+                "query_split": args.query_split,
+                "query_fingerprint": test._fingerprint,
+                "top_k": args.top_k,
+                "exclude_identical_questions": args.exclude_identical_questions,
+                "initial_checkpoint": str(output / "initial_model.pth"),
+                "initial_checkpoint_epoch": checkpoint_epoch,
+            },
+        )
     unique_ids = np.unique(nearest_ids)
     nearest_texts = tokenizer.decode_batch(train[unique_ids.tolist()]["input_ids"])
     texts = dict(zip(map(int, unique_ids), nearest_texts))
@@ -182,7 +274,11 @@ def main():
             ]
             file.write(
                 json.dumps(
-                    {"test_index": index, "question": question, "neighbors": neighbors},
+                    {
+                        f"{args.query_split}_index": index,
+                        "question": question,
+                        "neighbors": neighbors,
+                    },
                     ensure_ascii=False,
                 )
                 + "\n"
@@ -195,12 +291,14 @@ def main():
         "train_indices": str(indices_path),
         "train_index_meaning": "Row in the tokenized train split before length filtering",
         "train_rows": len(indices),
-        "test_rows": len(test),
+        "query_split": args.query_split,
+        f"{args.query_split}_rows": len(test),
+        "excluded_identical_train_rows": excluded_rows,
+        "searched_train_rows": searched_rows,
+        "subset_rows": subset_rows,
         "embedding": "Last encoder layer, masked mean over non-PAD input tokens, L2 normalized",
         "embedding_dim": int(queries.shape[1]),
-        "encoder_precision": (
-            "bfloat16 autocast" if device.type == "cuda" else "float32"
-        ),
+        "encoder_precision": str(encoder_dtype(device)).removeprefix("torch."),
         "similarity_precision": "float32, exhaustive block search",
         "top_k": args.top_k,
         "batch_size": args.batch_size,

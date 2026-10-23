@@ -72,4 +72,20 @@ class Trainer(BaseTrainer):
             for metric in self.metrics["generation"]:
                 metric.update(generated, batch.get("labels"))
             del generated
+            if self.cfg_trainer.get("compare_greedy", False):
+                greedy_generation = dict(self.cfg_trainer.generation)
+                greedy_generation.update(num_beams=1, return_beams=False)
+                with torch.autocast(
+                    device_type=torch.device(self.device).type,
+                    dtype=self.amp_dtype,
+                    enabled=self.amp_enabled,
+                ):
+                    generated = self.model.generate(
+                        input_ids=batch["input_ids"],
+                        attention_mask=batch.get("attention_mask"),
+                        **greedy_generation,
+                    )
+                for metric in self.greedy_metrics:
+                    metric.update(generated, batch.get("labels"))
+                del generated
         return batch

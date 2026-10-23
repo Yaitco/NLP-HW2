@@ -118,6 +118,61 @@ class VirtualEpochTests(unittest.TestCase):
         self.assertFalse(list(trainer.checkpoint_dir.glob("checkpoint-epoch*.pth")))
         self.assertTrue((trainer.checkpoint_dir / "model_best.pth").exists())
 
+    def test_retains_last_ten_snapshots_without_changing_older_weights(self):
+        trainer = self.make_trainer()
+        trainer.keep_last_checkpoints = 10
+        for epoch in range(1, 13):
+            with torch.no_grad():
+                next(trainer.model.parameters()).fill_(epoch)
+            trainer._save_checkpoint(epoch, save_best=(epoch == 2))
+        snapshots = sorted(trainer.checkpoint_dir.glob("checkpoint-epoch*.pth"))
+        self.assertEqual([p.name for p in snapshots], [
+            f"checkpoint-epoch{epoch:06d}.pth" for epoch in range(3, 13)
+        ])
+        for path, epoch in [(snapshots[0], 3), (snapshots[-1], 12),
+                            (trainer.checkpoint_dir / "checkpoint-last.pth", 12),
+                            (trainer.checkpoint_dir / "model_best.pth", 2)]:
+            state = torch.load(path, weights_only=False)
+            self.assertEqual(state["epoch"], epoch)
+            self.assertTrue(torch.all(next(iter(state["state_dict"].values())) == epoch))
+            self.assertIn("optimizer", state)
+        # Reopening the same run must prune its existing history as well.
+        reopened = self.make_trainer()
+        reopened.keep_last_checkpoints = 10
+        reopened._save_checkpoint(13)
+        self.assertFalse(snapshots[0].exists())
+        self.assertEqual(len(list(trainer.checkpoint_dir.glob("checkpoint-epoch*.pth"))), 10)
+
+    def test_optional_baseline_evaluates_before_updates_and_is_not_repeated_on_resume(self):
+        trainer = self.make_trainer(n_epochs=1)
+        trainer.cfg_trainer.validate_before_training = True
+        with patch.object(trainer, "_evaluation_epoch", wraps=trainer._evaluation_epoch) as evaluate:
+            trainer._train_process()
+        self.assertEqual([c.kwargs['step'] for c in evaluate.call_args_list], [0, 8])
+        self.assertTrue(evaluate.call_args_list[0].kwargs['compute_generation'])
+        self.assertEqual(trainer.model.generation_steps[:2], [0, 0])
+        trainer.cfg_trainer.resume_from = 'checkpoint-last.pth'
+        trainer._resume_checkpoint(trainer.checkpoint_dir / 'checkpoint-last.pth')
+        with patch.object(trainer, '_evaluation_epoch') as evaluate:
+            trainer._train_process()
+        evaluate.assert_not_called()
+
+    def test_beam_and_greedy_validation_have_separate_counters_and_names(self):
+        trainer = self.make_trainer()
+        trainer.cfg_trainer.compare_greedy = True
+        trainer.cfg_trainer.generation.num_beams = 16
+        with patch.object(trainer.model, 'generate', return_value=torch.ones(1, 1, dtype=torch.long)) as generate:
+            values = trainer._evaluation_epoch(0, 'val', self.fixture.batches[:2])
+        self.assertEqual([c.kwargs['num_beams'] for c in generate.call_args_list], [16, 1, 16, 1])
+        self.assertEqual(values['beam_pass_total'], 2)
+        self.assertEqual(values['greedy_pass_total'], 2)
+        self.assertIn('beam_pass_at_1', values)
+        self.assertIn('greedy_pass_at_1', values)
+        self.assertIn('loss', values)
+        trainer._evaluation_epoch(1, 'val', self.fixture.batches[:2])
+        self.assertEqual(trainer.greedy_metrics[0].count, 2)
+        self.assertEqual(trainer.metrics['generation'][0].count, 2)
+
     def test_resume_preserves_stream_and_rng_across_virtual_epochs(self):
         model = Model()
         full = self.make_trainer(copy.deepcopy(model))

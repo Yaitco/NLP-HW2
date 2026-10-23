@@ -1,0 +1,32 @@
+defaults:
+  - tinysms_noimports_640_6x6_b64_acc2_1000ep
+  - _self_
+
+datasets:
+  train:
+    indices_path: artifacts/retrieval_val64/train_indices.npy
+
+optimizer:
+  lr: 1.0e-5
+
+lr_scheduler: null # Constant LR, no warmup or decay.
+
+dataloader:
+  eval_batch_size: 8
+
+trainer:
+  from_pretrained: artifacts/retrieval_val64/initial_model.pth
+  resume_from: null
+  n_epochs: 20
+  epoch_len: null # A complete pass over the retrieved dataset.
+  log_step: 20
+  pass_every_epochs: 1
+  validate_before_training: true
+  compare_greedy: true
+  beam_voting: false
+  monitor: max val_beam_pass_at_1
+  generation:
+    num_beams: 16
+
+writer:
+  run_name: retrieval_val64_640_lr1e5_20ep
