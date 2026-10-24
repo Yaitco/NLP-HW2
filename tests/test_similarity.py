@@ -16,12 +16,61 @@ from tokenizers.models import WordLevel
 import torch
 from torch.nn import functional as F
 
-from analyze_similarity import encode, encoder_dtype, main, masked_mean, merge_nearest
+from analyze_similarity import encode, encoder_dtype, main, masked_mean, merge_nearest, reuse_neighbors
 from src.datasets.tinysms import TinySMSDataset
 from src.model import Seq2SeqTransformer, Seq2SeqTransformerConfig
 
 
 class SimilarityTests(unittest.TestCase):
+    def test_reuse_cached_ranking_without_loading_model(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, output = root/'top64', root/'top4'
+            source.mkdir()
+            ids = np.array([[7, 3, 5, 1, 9], [3, 8, 2, 6, 4]])
+            scores = np.array([[.9, .8, .7, .6, .5], [.95, .85, .75, .65, .55]])
+            np.savez(source/'nearest.npz', train_indices=ids, scores=scores)
+            metadata = dict(source_fingerprint='train-fp', source_rows=10, top_k=5,
+                            query_split='validation', query_fingerprint='val-fp',
+                            exclude_identical_questions=True, initial_checkpoint_epoch=1000)
+            (source/'train_indices.json').write_text(json.dumps(metadata))
+            (source/'initial_model.pth').write_bytes(b'frozen weights')
+            with patch('sys.argv', ['analyze_similarity.py', '--reuse-neighbors', str(source),
+                                   '--output', str(output), '--top-k', '4']), patch('analyze_similarity.torch.load') as load:
+                main()
+            load.assert_not_called()
+            np.testing.assert_array_equal(np.load(output/'train_indices.npy'), np.unique(ids[:, :4]))
+            with np.load(output/'nearest.npz') as saved:
+                np.testing.assert_array_equal(saved['train_indices'], ids[:, :4])
+                np.testing.assert_array_equal(saved['scores'], scores[:, :4])
+            manifest = json.loads((output/'train_indices.json').read_text())
+            self.assertEqual(manifest['kept_rows'], 7)
+            self.assertEqual(manifest['top_k'], 4)
+            self.assertEqual(manifest['query_fingerprint'], 'val-fp')
+            self.assertTrue(manifest['exclude_identical_questions'])
+            self.assertEqual((output/'initial_model.pth').read_bytes(), b'frozen weights')
+            with self.assertRaises(FileExistsError):
+                reuse_neighbors(source, output, 4)
+            with self.assertRaises(ValueError):
+                reuse_neighbors(source, root/'invalid', 6)
+
+    def test_top4_config_preserves_training_and_validation_settings(self):
+        from hydra import compose, initialize_config_dir
+        with initialize_config_dir(config_dir=str(Path('src/configs').resolve()), version_base=None):
+            config = compose(config_name='tinysms_retrieval_val4')
+        self.assertEqual(config.datasets.train.indices_path, 'artifacts/retrieval_val4/train_indices.npy')
+        self.assertEqual(config.trainer.from_pretrained, 'artifacts/retrieval_val4/initial_model.pth')
+        self.assertIsNone(config.trainer.resume_from)
+        self.assertEqual(config.trainer.n_epochs, 20)
+        self.assertIsNone(config.trainer.epoch_len)
+        self.assertTrue(config.trainer.compare_greedy)
+        self.assertTrue(config.trainer.validate_before_training)
+        self.assertEqual(config.trainer.generation.num_beams, 4)
+        self.assertEqual(config.dataloader.eval_batch_size, 32)
+        self.assertEqual(config.dataloader.batch_size * config.trainer.accumulate_grad_batches, 128)
+        self.assertEqual(config.optimizer.lr, 1e-5)
+        self.assertIsNone(config.lr_scheduler)
+
     def test_encoder_uses_fp16_when_cuda_has_no_native_bf16(self):
         self.assertEqual(encoder_dtype(torch.device("cpu")), torch.float32)
         with patch("torch.cuda.device", return_value=nullcontext()), patch(

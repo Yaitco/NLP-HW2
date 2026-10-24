@@ -12,7 +12,10 @@ optimizer:
 lr_scheduler: null # Constant LR, no warmup or decay.
 
 dataloader:
-  eval_batch_size: 8
+  eval_batch_size: 32
+
+code_execution:
+  batch_size: 64
 
 trainer:
   from_pretrained: artifacts/retrieval_val64/initial_model.pth
@@ -26,7 +29,7 @@ trainer:
   beam_voting: false
   monitor: max val_beam_pass_at_1
   generation:
-    num_beams: 16
+    num_beams: 4
 
 writer:
   run_name: retrieval_val64_640_lr1e5_20ep

@@ -14,6 +14,11 @@ class TextCleaningTests(unittest.TestCase):
         self.assertEqual(clean_question('No prefix here'), 'No prefix here')
         self.assertEqual(clean_question('Task: A\nQuestion: How many?'), 'How many?')
 
+    def test_spaced_ratio_is_not_a_prefix(self):
+        self.assertEqual(clean_question('A ratio is 3 : 2?'), 'A ratio is 3 : 2?')
+        self.assertEqual(clean_question('Student: A ratio is 3 : 2?'), 'A ratio is 3 : 2?')
+        self.assertEqual(clean_question('Ignore : A task'), 'Ignore : A task')
+
     def test_imports_are_deleted_without_assignments_or_renaming(self):
         code = 'def solve():\n    import math\n    from math import sqrt\n    return math.ceil(sqrt(8))'
         cleaned = remove_imports(code)

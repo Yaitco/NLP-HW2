@@ -108,6 +108,7 @@ wandb/
 .cometml-runs/
 outputs/
 artifacts/
+report/
 checkpoints/
 
 # editor, os cache directory

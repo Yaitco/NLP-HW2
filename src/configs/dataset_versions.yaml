@@ -1,0 +1,23 @@
+source: artifacts/code_noimports_full_clean
+output: artifacts/dataset_versions
+work: artifacts/dataset_versions_work
+answer_cache: report/duplicate_code_audit/answers.sqlite
+local_files_only: true
+batch_size: 8192
+ast_workers: 4
+
+voting:
+  rtol: 0.00001
+  atol: 0.000001
+
+execution:
+  sandbox: true
+  timeout: 2.0
+  memory_mb: 512
+  workers: 8
+  batch_size: 512
+
+hub:
+  v1: YaItco/tinysms-clean-v1
+  v2: YaItco/tinysms-clean-v2
+private: false

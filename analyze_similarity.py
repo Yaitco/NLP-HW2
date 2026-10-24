@@ -3,6 +3,8 @@
 import argparse
 import hashlib
 import json
+from pathlib import Path
+import shutil
 import time
 
 import numpy as np
@@ -88,6 +90,40 @@ def save_train_subset(output, nearest_ids, source_fingerprint, source_rows, meta
     return len(indices)
 
 
+def reuse_neighbors(source, output, top_k):
+    """Take a smaller top-k from a saved ranking without loading the model."""
+    source, output = Path(source), Path(output)
+    manifest = json.loads((source / 'train_indices.json').read_text())
+    with np.load(source / 'nearest.npz', allow_pickle=False) as saved:
+        ids, scores = saved['train_indices'], saved['scores']
+    if (ids.ndim != 2 or ids.shape != scores.shape or not ids.shape[0]
+        or not 1 <= top_k <= ids.shape[1] or ids.shape[1] != manifest['top_k']
+        or not np.issubdtype(ids.dtype, np.integer)
+        or np.any(ids < 0) or np.any(ids >= manifest['source_rows'])
+        or not np.isfinite(scores).all() or np.any(scores[:, 1:] > scores[:, :-1])):
+        raise ValueError('Invalid cached ranking or requested top-k')
+    checkpoint = source / 'initial_model.pth'
+    if not checkpoint.is_file():
+        raise FileNotFoundError(checkpoint)
+    if output.exists() and any(output.iterdir()):
+        raise FileExistsError(f'Use an empty output directory: {output}')
+    output.mkdir(parents=True, exist_ok=True)
+    ids, scores = ids[:, :top_k], scores[:, :top_k]
+    np.savez(output / 'nearest.npz', train_indices=ids, scores=scores)
+    shutil.copy2(checkpoint, output / 'initial_model.pth')
+    metadata = dict(manifest, top_k=top_k,
+                    initial_checkpoint=str((output / 'initial_model.pth').resolve()),
+                    parent_neighbors=str(source.resolve()))
+    rows = save_train_subset(output, ids, manifest['source_fingerprint'],
+                             manifest['source_rows'], metadata)
+    (output / 'summary.json').write_text(json.dumps(dict(
+        parent_neighbors=str(source.resolve()), query_split=manifest['query_split'],
+        query_fingerprint=manifest['query_fingerprint'], top_k=top_k,
+        subset_rows=rows, query_rows=len(ids)), indent=2)+'\n')
+    print(f'Top-{top_k}: {len(ids)} queries, {rows} unique train rows; saved to {output}')
+    return rows
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -111,11 +147,16 @@ def main():
         help="Only for a quick check; omit to search all train rows",
     )
     parser.add_argument("--device", default="cuda")
+    parser.add_argument('--reuse-neighbors', help='Derive a smaller top-k from saved neighbors, without GPU/search')
     args = parser.parse_args()
     if min(args.batch_size, args.chunk_size, args.top_k) < 1 or (
         args.train_limit is not None and args.train_limit < 1
     ):
         parser.error("Sizes must be positive")
+
+    if args.reuse_neighbors:
+        reuse_neighbors(ROOT_PATH / args.reuse_neighbors, ROOT_PATH / args.output, args.top_k)
+        return
 
     torch.set_num_threads(4)
     torch.set_float32_matmul_precision("highest")

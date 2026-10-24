@@ -1,6 +1,7 @@
 """Batch AST execution preserves numeric results, deadlines and candidate order."""
 
 import subprocess
+import shutil
 import time
 import unittest
 from fractions import Fraction
@@ -47,6 +48,18 @@ class BatchExecutionTests(unittest.TestCase):
         self.assertEqual(
             self.executor.run_batch(codes), [self.executor.run(code) for code in codes]
         )
+
+    def test_print_stays_in_batch_and_preserves_results_and_errors(self):
+        codes = [
+            'def solve():\n    result = 7\n    print(f"<<<{result}>>>")\n    return result',
+            'def solve():\n    print(missing)\n    return 9',
+            'def solve():\n    print("ignored", end="")\n    return 3',
+        ]
+        expected = [self.executor.run(code) for code in codes]
+        with patch('src.utils.code_executor.subprocess.Popen', wraps=subprocess.Popen) as popen:
+            actual = self.executor.run_batch(codes)
+        self.assertEqual(actual, expected)
+        self.assertEqual(popen.call_count, 1)
 
     def test_math_prelude_runs_in_one_process_with_local_import_bindings(self):
         codes = [restore_code(body, add_imports=True) for body in [
@@ -122,6 +135,18 @@ class BatchExecutionTests(unittest.TestCase):
         self.assertEqual(
             self.executor.run_batch(codes), [self.executor.run(code) for code in codes]
         )
+
+    @unittest.skipUnless(shutil.which('bwrap'), 'Bubblewrap required')
+    def test_64_math_programs_share_one_sandboxed_worker(self):
+        executor = SafeCodeExecutor(sandbox=True)
+        codes = [restore_code(f'    gcd = gcd({i}, 9)\n    result = gcd + math.sqrt(4)\n',
+                              add_imports=True) for i in range(64)]
+        with patch('src.utils.code_executor.subprocess.Popen', wraps=subprocess.Popen) as popen:
+            results = executor.run_batch(codes)
+        self.assertEqual(popen.call_count, 1)
+        self.assertIn('bwrap', popen.call_args.args[0][0])
+        import math
+        self.assertEqual(results, [ExecutionResult('ok', Fraction(math.gcd(i, 9) + 2)) for i in range(64)])
 
     def test_partial_worker_output_recovers_remaining_candidates(self):
         codes = [

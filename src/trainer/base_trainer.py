@@ -143,19 +143,23 @@ class BaseTrainer:
         return self._elapsed_training_seconds() >= self.time_limit_seconds
 
     def _train_process(self):
-        if (
+        if getattr(self, "_validation_changed_on_resume", False) or (
             self.cfg_trainer.get("validate_before_training", False)
             and self.microbatches_seen == 0
         ):
             logs = {}
             for part, loader in self.evaluation_dataloaders.items():
                 values = self._evaluation_epoch(
-                    0, part, loader, compute_generation=True, step=0
+                    self.microbatches_seen / self.epoch_len, part, loader,
+                    compute_generation=True, step=self.microbatches_seen,
                 )
                 logs.update({f"{part}_{name}": value for name, value in values.items()})
             self.logger.info(f"Baseline before training: {logs}")
             if self._monitor_performance(logs):
-                self._save_checkpoint(0, save_best=True)
+                self._save_checkpoint(
+                    self.microbatches_seen // self.epoch_len, save_best=True
+                )
+            self._validation_changed_on_resume = False
         for epoch in range(self.start_epoch, self.epochs + 1):
             if (
                 self.microbatches_seen >= self.total_microbatches
@@ -492,6 +496,19 @@ class BaseTrainer:
         self.training_seconds = checkpoint.get("training_seconds", 0.0)
         self.mnt_best = checkpoint["monitor_best"]
         self.not_improved_count = checkpoint["not_improved_count"]
+        self._validation_changed_on_resume = any(
+            saved.trainer.get(key) != self.cfg_trainer.get(key)
+            for key in (
+                "generation", "monitor", "beam_voting",
+                "beam_voting_temperature", "compare_greedy",
+            )
+        )
+        if self._validation_changed_on_resume:
+            self.mnt_best = math.inf if self.mnt_mode == "min" else -math.inf
+            self.not_improved_count = 0
+            self.logger.info(
+                "Validation settings changed: re-evaluate baseline and reset best score"
+            )
         self.start_epoch = self.microbatches_seen // self.epoch_len + 1
         self._iterator = None
         rng = checkpoint["rng_state"]

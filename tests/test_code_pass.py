@@ -237,6 +237,45 @@ class PassRateTests(unittest.TestCase):
         self.assertEqual(metric.compute()["pass_at_1"], .5)
         self.assertEqual(metric.compute()["reference_errors"], 0)
 
+    def test_generated_final_variable_is_returned_but_references_stay_strict(self):
+        metric = CodePassRate('artifacts/tokenizer.json', workers=2, code_format='solve_body_result')
+        metric.update(self.encode(['    result = 1\n    answer = 3\n', '    answer = 3\n']),
+                      self.encode(['    result = 3\n', '    answer = 3\n']))
+        result = metric.compute()
+        self.assertEqual(result['pass_at_1'], 1)
+        self.assertEqual(result['reference_errors'], 1)
+
+    def test_execution_batches_span_validation_updates_and_flush_the_tail(self):
+        predicted = [f"def solve(): return {i % 3}" for i in range(67)]
+        references = list(predicted)
+        predicted[3] = 'def solve(): return 99'
+        predicted[4] = 'def solve(): return 1 / 0'
+        references[5] = 'def solve(): return None'
+        generated, labels = self.encode(predicted), self.encode(references)
+        generated[-1][generated[-1] == self.metric.tokenizer.eos_token_id] = self.metric.tokenizer.pad_token_id
+        self.metric.update(generated, labels)
+        expected = self.metric.compute()
+        metric = CodePassRate('artifacts/tokenizer.json', workers=2, execution_batch_size=64)
+        with patch.object(metric.executor, 'run_batch', wraps=metric.executor.run_batch) as run:
+            metric.update(generated[:32], labels[:32])
+            run.assert_not_called()
+            metric.update(generated[32:64], labels[32:64])
+            self.assertEqual(len(metric.pending), 0)
+            # One invalid reference is excluded from the first 64 examples.
+            self.assertIn(63, [len(c.args[0]) for c in run.call_args_list])
+            metric.update(generated[64:], labels[64:])
+            self.assertEqual(len(metric.pending), 3)
+            actual = metric.compute()
+            self.assertTrue(all(len(c.args[0]) <= 64 for c in run.call_args_list))
+            calls = run.call_count
+            self.assertEqual(actual, metric.compute())
+            self.assertEqual(run.call_count, calls)
+        self.assertEqual(actual, expected)
+        metric.update(generated[:32], labels[:32])
+        metric.reset()
+        self.assertEqual(metric.pending, [])
+        self.assertTrue(metric.reference_cache)
+
 
 @unittest.skipUnless(shutil.which("bwrap"), "Bubblewrap is required")
 class TrainerIntegrationTests(unittest.TestCase):

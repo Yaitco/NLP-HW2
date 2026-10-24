@@ -1,0 +1,14 @@
+defaults:
+  - tinysms_retrieval_val64
+  - _self_
+
+datasets:
+  train:
+    indices_path: artifacts/retrieval_val4/train_indices.npy
+
+trainer:
+  from_pretrained: artifacts/retrieval_val4/initial_model.pth
+  resume_from: null
+
+writer:
+  run_name: retrieval_val4_640_lr1e5_20ep

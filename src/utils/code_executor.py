@@ -130,7 +130,7 @@ class CandidateTimeout(BaseException):
 def expired(*args):
     raise CandidateTimeout()
 
-allowed_calls = set('abs round int float bool pow min max sum len range list tuple set dict sorted all any divmod enumerate zip reversed'.split())
+allowed_calls = set('print abs round int float bool pow min max sum len range list tuple set dict sorted all any divmod enumerate zip reversed'.split())
 math_names = {name: getattr(math, name) for name in dir(math) if not name.startswith('_')}
 forbidden = (ast.Import, ast.ImportFrom, ast.Attribute, ast.Global, ast.Nonlocal,
              ast.ClassDef, ast.AsyncFunctionDef, ast.Try, ast.TryStar, ast.With,
@@ -335,7 +335,7 @@ class SafeCodeExecutor:
 
     def run_batch(self, codes):
         """One process for arithmetic/math imports; complex code uses run()."""
-        if self.sandbox or len(codes) <= 1:
+        if len(codes) <= 1:
             return [self.run(code) for code in codes]
         results, valid = [None] * len(codes), []
         for index, code in enumerate(codes):
@@ -356,7 +356,9 @@ class SafeCodeExecutor:
             "timeout": self.timeout,
             "max_output_bytes": output_limit,
         }
-        data, _ = self._run_process(payload, [sys.executable, "-I", "-S", "-c", _BATCH_WORKER],
+        # Keep the same Bubblewrap isolation, replacing only its Python program.
+        command = self.command[:-1] + [_BATCH_WORKER]
+        data, _ = self._run_process(payload, command,
                                     self.timeout * len(valid) + 1, output_limit)
         lines = data.splitlines()
         for position, index in enumerate(valid):

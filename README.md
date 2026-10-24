@@ -292,7 +292,8 @@ worker; each function retains its own local import bindings, separate globals an
 individual timeout. Writes to module attributes, other imports and unsupported
 constructs retain individual-process execution. Set
 `EXECUTION_BATCH_SIZE = 1` to compare with the previous implementation; training
-uses `code_execution.batch_size` for this setting. Sandboxed execution stays per program.
+uses `code_execution.batch_size` for this setting. Sandboxed voting stays per program.
+Validation Pass@1 supports batched AST execution inside Bubblewrap as well.
 No weights change or Hugging Face re-upload is needed; use the updated project code.
 
 To train a model, run the following command:
@@ -355,8 +356,11 @@ for retrieval. Use a new output directory for a new retrieval experiment.
 Fine-tuning uses a fresh optimizer, constant LR `1e-5`, batch 64 with accumulation
 2, and 20 full passes over the retrieved mini-dataset (`epoch_len: null`). Before
 training and after every pass it reports `val_loss`, `val_beam_pass_at_1` (best of
-16 beams by model score, no execution voting), and `val_greedy_pass_at_1`.
-Validation batch size is 8. The best checkpoint is selected by beam Pass@1;
+4 beams by model score, no execution voting), and `val_greedy_pass_at_1`.
+Validation batch size is 32; program execution batches contain up to 64 candidates.
+The metric buffers candidates across validation batches and flushes the final
+partial batch at compute(). Local execution keeps Bubblewrap isolation;
+unsupported programs fall back to separate sandboxed processes. The best checkpoint is selected by beam Pass@1;
 checkpoints/logs are separate from the main run in
 `saved/retrieval_val64_640_lr1e5_20ep/`. Override `trainer.n_epochs` to change the
 number of full passes. Validation questions guide training-data selection, so
@@ -374,3 +378,26 @@ Set `INPUT_ROOT` to its mounted location. The notebook links read-only data,
 creates a training config matching the checkpoint architecture, runs retrieval,
 then fine-tuning. AMP uses FP16 on GPUs without native BF16, including T4.
 Execution explicitly uses `sandbox=False` for the Kaggle runtime.
+
+To select an exponential average of the last ten numbered checkpoints, run:
+
+```bash
+venv/bin/python average_checkpoints.py \
+  --run saved/noimports_640_6x6_cosine_16k_len128_b64_acc2_1000ep \
+  --output artifacts/ema_640_last10
+```
+
+Weights are proportional to `beta ** age` (age 0 is the newest snapshot),
+normalized over the ten checkpoints. Beta 0 uses the latest snapshot; beta 1 is
+the uniform mean. Candidates are selected by full-validation greedy Pass@1,
+with val loss as a tie-breaker, and compared with the original best checkpoint.
+`best_ema.pth` stores the best averaged candidate; `model_best.pth` stores the
+best overall candidate. Both are inference/fine-tuning checkpoints without
+optimizer state. `summary.json` records the sweep and metrics. Export/upload
+`model_best.pth` with `export_model.py` after the sweep completes.
+
+If the recent window is weaker than the original best model, an alternative is
+`--anchor-best --betas 0.9 0.95 0.99` with a new output directory. It initializes
+EMA from `model_best.pth`, then applies `EMA = beta * EMA + (1-beta) * snapshot`
+in chronological order over the ten recent snapshots. This is post-hoc averaging
+of saved snapshots, not online EMA over every optimizer update.

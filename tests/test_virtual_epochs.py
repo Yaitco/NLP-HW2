@@ -173,6 +173,21 @@ class VirtualEpochTests(unittest.TestCase):
         self.assertEqual(trainer.greedy_metrics[0].count, 2)
         self.assertEqual(trainer.metrics['generation'][0].count, 2)
 
+    def test_changed_beam_count_on_resume_recomputes_baseline(self):
+        trainer = self.make_trainer(n_epochs=1)
+        trainer.cfg_trainer.generation.num_beams = 16
+        trainer._train_process()
+        resumed = self.make_trainer(n_epochs=1)
+        resumed.cfg_trainer.generation.num_beams = 4
+        resumed._resume_checkpoint(resumed.checkpoint_dir / 'checkpoint-last.pth')
+        self.assertTrue(resumed._validation_changed_on_resume)
+        with patch.object(resumed, '_evaluation_epoch', wraps=resumed._evaluation_epoch) as evaluate:
+            resumed._train_process()
+        self.assertEqual(evaluate.call_count, 1)
+        self.assertEqual(evaluate.call_args.kwargs['step'], 8)
+        self.assertEqual(resumed.optimizer_steps, trainer.optimizer_steps)
+        self.assertFalse(resumed._validation_changed_on_resume)
+
     def test_resume_preserves_stream_and_rng_across_virtual_epochs(self):
         model = Model()
         full = self.make_trainer(copy.deepcopy(model))

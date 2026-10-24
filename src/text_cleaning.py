@@ -11,7 +11,7 @@ def import_prelude():
 
 
 def clean_question(question):
-    matches = list(re.finditer(r': (?=[^a-z])', question))
+    matches = list(re.finditer(r'(?<=\S): (?=[^a-z])', question))
     return question[matches[-1].end():] if matches else question
 
 

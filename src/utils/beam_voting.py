@@ -7,7 +7,7 @@ from fractions import Fraction
 import torch
 from tokenizers import Tokenizer
 
-from src.code_preprocessing import restore_code
+from src.utils.code_postprocessing import restore_generated_code
 from src.utils.code_executor import SafeCodeExecutor
 from src.utils.io_utils import ROOT_PATH
 
@@ -121,7 +121,7 @@ class BeamVoter:
         ]
         codes = self.tokenizer.decode_batch(clean, skip_special_tokens=True)
         if self.code_format == "solve_body_result":
-            codes = [restore_code(code, add_imports=self.add_imports) for code in codes]
+            codes = [restore_generated_code(code, add_imports=self.add_imports) for code in codes]
         runnable = list(
             dict.fromkeys(
                 code
